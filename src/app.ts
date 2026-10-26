@@ -44,12 +44,20 @@ export function createApp(dbPath = './acoustic_doa.db'): Express {
   app.use(express.json());
 
   // Mount Swagger UI at /api/docs
-  const openApiPath = path.resolve(__dirname, '../openapi.yaml');
-  if (fs.existsSync(openApiPath)) {
+  const candidatePaths = [
+    path.resolve(__dirname, '../openapi.yaml'),
+    path.resolve(process.cwd(), 'openapi.yaml'),
+    path.resolve(__dirname, '../../openapi.yaml'),
+  ];
+  const openApiPath = candidatePaths.find((p) => fs.existsSync(p));
+
+  if (openApiPath) {
     const openApiYaml = fs.readFileSync(openApiPath, 'utf-8');
     const openApiSpec = YAML.parse(openApiYaml);
     app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec));
-    console.log('[API] Swagger documentation mounted at /api/docs');
+    console.log(`[API] Swagger documentation mounted at /api/docs (spec: ${openApiPath})`);
+  } else {
+    console.warn('[API] Warning: openapi.yaml not found; /api/docs will not be available.');
   }
 
   // API v1 Router
@@ -65,6 +73,17 @@ export function createApp(dbPath = './acoustic_doa.db'): Express {
   // Health check endpoint
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+  });
+
+  // Catch-all 404 handler for API routes
+  app.use('/api', (_req, res) => {
+    res.status(404).json({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Endpoint not found',
+        status: 404,
+      },
+    });
   });
 
   return app;
