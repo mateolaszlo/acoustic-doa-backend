@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  acoustic-doa-backend:
+    build: .
+    container_name: acoustic-doa-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # HTTP Ingestion Gateway (ESP32)
+      - "3443:3443"   # HTTPS Web Client Gateway (Dashboard)
+    volumes:
+      - ./data:/app/data
+      - ./certs:/app/certs:ro
+    environment:
+      - HTTP_PORT=3000
+      - HTTPS_PORT=3443
+      - DB_PATH=/app/data/acoustic_doa.db

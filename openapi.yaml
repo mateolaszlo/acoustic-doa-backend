@@ -1,0 +1,653 @@
+openapi: 3.1.0
+info:
+  title: Acoustic DOA Tracking & Configuration API
+  version: 1.0.0
+  description: >
+    Production REST and Server-Sent Events (SSE) API specification for the ESP32 Acoustic
+    Direction of Arrival (DOA) tracking platform. Serves dual-tier architecture:
+    lightweight HTTP for ESP32 edge telemetry ingestion, and HTTPS for web visualizer,
+    monitoring, and remote calibration.
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local HTTP Development Gateway (ESP32 Edge & Local Web Client)
+  - url: https://localhost:3443/api/v1
+    description: Local HTTPS Secure Gateway (Client 2 Web Visualizer)
+
+paths:
+  /devices/{device_id}/calibration:
+    get:
+      summary: Retrieve Device Calibration & Server Time
+      description: >
+        Polled by the ESP32 client at boot and every 60 seconds (as configured in firmware).
+        Returns acoustic array dimensions, DSP thresholds, SPL calibration offset, and server
+        time for UTC synchronization.
+      operationId: getDeviceCalibration
+      tags:
+        - Device Ingestion
+        - Calibration
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          description: Numeric identifier of the device
+          schema:
+            type: integer
+            example: 1
+        - name: x-api-key
+          in: header
+          required: true
+          description: Secret device API key provisioned in ESP32 NVS
+          schema:
+            type: string
+            example: "esp32-acoustic-doa-secret-key-1"
+      responses:
+        '200':
+          description: Valid calibration settings and current server timestamp
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalibrationResponse'
+              example:
+                device_id: 1
+                microphone_distance_m: 0.082
+                sample_rate: 44100
+                window_size: 1024
+                correlation_threshold: 0.40
+                sound_level_threshold_db: 55.0
+                db_spl_offset: 96.5
+                angle_offset_deg: 0.0
+                adaptive_threshold_enabled: true
+                snr_margin_db: 8.0
+                server_time_unix_ms: 1791830000123
+        '401':
+          description: Unauthorized - missing or invalid x-api-key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /measurements:
+    post:
+      summary: Upload Binary Measurement Batch
+      description: >
+        High-throughput binary batch endpoint streamed by the ESP32 at up to 5 Hz.
+        Payload consists of a 12-byte little-endian header followed by N contiguous 20-byte records
+        (1 <= N <= 24). Total byte size is strictly 12 + 20*N bytes.
+      operationId: uploadMeasurementBatch
+      tags:
+        - Device Ingestion
+      parameters:
+        - name: x-api-key
+          in: header
+          required: true
+          description: Secret device API key provisioned in ESP32 NVS
+          schema:
+            type: string
+            example: "esp32-acoustic-doa-secret-key-1"
+      requestBody:
+        required: true
+        description: Binary measurement batch (12-byte header + 20-byte records)
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Batch accepted, decoded, persisted, and broadcast to SSE clients
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasurementUploadResponse'
+              example:
+                status: "success"
+                accepted: 12
+                device_id: 1
+                clock_source: "SNTP_UTC"
+                received_at: "2026-10-26T17:45:00.120Z"
+        '400':
+          description: Malformed binary payload (invalid size, unknown version, count > 24)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /devices/{device_id}/stream:
+    get:
+      summary: Real-Time Acoustic Telemetry Stream (Server-Sent Events)
+      description: >
+        Persistent HTTP stream delivering real-time decoded measurement events to the
+        web dashboard visualizer (Client 2). The browser connects using the native
+        EventSource API.
+      operationId: getDeviceEventStream
+      tags:
+        - Real-Time Streaming
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          description: Device ID to subscribe to
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Continuous text/event-stream delivering measurement batches and heartbeats
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: measurement_batch
+                  data: {"device_id":1,"clock_flags":1,"base_timestamp_ms":1791830000100,"records":[{"timestamp_ms":1791830000125,"angle_deg":42.5,"delay_us":82.1,"sound_level_db":68.4,"confidence":0.88}]}
+
+  /devices/{device_id}/measurements/latest:
+    get:
+      summary: Poll Latest Measurements (REST Fallback)
+      description: Returns the newest acoustic detection events since an optional timestamp.
+      operationId: getLatestMeasurements
+      tags:
+        - Measurements
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: since_timestamp
+          in: query
+          required: false
+          description: Millisecond Unix timestamp. Only returns measurements newer than this.
+          schema:
+            type: integer
+            example: 1791830000000
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: List of latest measurements
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id:
+                    type: integer
+                  latest_timestamp_ms:
+                    type: integer
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MeasurementRecord'
+
+  /devices/{device_id}/measurements:
+    get:
+      summary: Query Historical Measurements
+      description: Query historical acoustic detection records with time-range and confidence filtering.
+      operationId: queryMeasurements
+      tags:
+        - Measurements
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: start_time
+          in: query
+          required: false
+          description: Start Unix timestamp in ms
+          schema:
+            type: integer
+        - name: end_time
+          in: query
+          required: false
+          description: End Unix timestamp in ms
+          schema:
+            type: integer
+        - name: min_confidence
+          in: query
+          required: false
+          schema:
+            type: number
+            format: float
+            minimum: 0.0
+            maximum: 1.0
+        - name: min_spl_db
+          in: query
+          required: false
+          schema:
+            type: number
+            format: float
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Paginated measurement list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMeasurements'
+
+  /devices/{device_id}/config:
+    get:
+      summary: Get Current Device Configuration
+      operationId: getDeviceConfig
+      tags:
+        - Configuration
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Current configuration settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceConfig'
+    put:
+      summary: Update Device Calibration Settings
+      description: >
+        Updates calibration parameters. The new configuration is persisted in the database
+        and immediately returned to the ESP32 on its next 60s calibration poll.
+      operationId: updateDeviceConfig
+      tags:
+        - Configuration
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDeviceConfigRequest'
+      responses:
+        '200':
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceConfig'
+
+  /devices/{device_id}/calibrate/zero-angle:
+    post:
+      summary: Trigger Zero-Angle Calibration
+      description: >
+        Calculates the circular average angle of recent measurements and updates
+        angle_offset_deg to bring the primary acoustic source to zero degrees (boresight).
+      operationId: calibrateZeroAngle
+      tags:
+        - Calibration
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sample_count:
+                  type: integer
+                  default: 20
+                  description: Number of recent detections to average
+      responses:
+        '200':
+          description: Calibration result and applied offset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id:
+                    type: integer
+                  previous_offset_deg:
+                    type: number
+                  new_offset_deg:
+                    type: number
+                  sampled_records:
+                    type: integer
+
+  /devices/{device_id}/stats:
+    get:
+      summary: Retrieve Acoustic Aggregation Statistics
+      description: >
+        Returns angular histogram bins (rose diagram distribution), SPL distribution,
+        and event counts over a specified timeframe.
+      operationId: getAcousticStats
+      tags:
+        - Analytics
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: timeframe
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["15m", "1h", "24h", "7d"]
+            default: "1h"
+      responses:
+        '200':
+          description: Aggregated acoustic statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcousticStats'
+
+  /devices:
+    get:
+      summary: List Registered Devices
+      operationId: listDevices
+      tags:
+        - Device Management
+      responses:
+        '200':
+          description: List of registered devices with connectivity status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeviceSummary'
+
+components:
+  schemas:
+    CalibrationResponse:
+      type: object
+      required:
+        - device_id
+        - microphone_distance_m
+        - sample_rate
+        - window_size
+        - correlation_threshold
+        - sound_level_threshold_db
+      properties:
+        device_id:
+          type: integer
+        microphone_distance_m:
+          type: number
+          format: float
+          description: Physical distance d in meters between microphone pairs (square side)
+          example: 0.082
+        sample_rate:
+          type: integer
+          enum: [44100, 48000]
+          example: 44100
+        window_size:
+          type: integer
+          enum: [1024]
+          example: 1024
+        correlation_threshold:
+          type: number
+          format: float
+          minimum: 0.10
+          maximum: 1.00
+          example: 0.40
+        sound_level_threshold_db:
+          type: number
+          format: float
+          example: 55.0
+        db_spl_offset:
+          type: number
+          format: float
+          example: 96.5
+        angle_offset_deg:
+          type: number
+          format: float
+          minimum: -180.0
+          maximum: 180.0
+          example: 0.0
+        adaptive_threshold_enabled:
+          type: boolean
+          example: true
+        snr_margin_db:
+          type: number
+          format: float
+          example: 8.0
+        server_time_unix_ms:
+          type: integer
+          description: Current server Unix timestamp in milliseconds for clock synchronization
+          example: 1791830000123
+
+    MeasurementRecord:
+      type: object
+      required:
+        - timestamp_ms
+        - angle_deg
+        - delay_us
+        - sound_level_db
+        - confidence
+      properties:
+        id:
+          type: integer
+        timestamp_ms:
+          type: integer
+          description: Millisecond Unix timestamp (base_timestamp_ms + offset_ms)
+          example: 1791830000125
+        angle_deg:
+          type: number
+          format: float
+          description: Azimuth in degrees [-180, +180]
+          example: 42.5
+        delay_us:
+          type: number
+          format: float
+          description: Projected baseline time difference of arrival in microseconds
+          example: 82.1
+        sound_level_db:
+          type: number
+          format: float
+          description: Calibrated sound pressure level in dB SPL
+          example: 68.4
+        confidence:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Weighted least squares correlation confidence
+          example: 0.88
+
+    MeasurementUploadResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "success"
+        accepted:
+          type: integer
+          example: 12
+        device_id:
+          type: integer
+          example: 1
+        clock_source:
+          type: string
+          example: "SNTP_UTC"
+        received_at:
+          type: string
+          format: date-time
+
+    DeviceConfig:
+      type: object
+      properties:
+        device_id:
+          type: integer
+        name:
+          type: string
+        microphone_distance_m:
+          type: number
+          format: float
+        sample_rate:
+          type: integer
+        window_size:
+          type: integer
+        correlation_threshold:
+          type: number
+          format: float
+        sound_level_threshold_db:
+          type: number
+          format: float
+        db_spl_offset:
+          type: number
+          format: float
+        angle_offset_deg:
+          type: number
+          format: float
+        adaptive_threshold_enabled:
+          type: boolean
+        snr_margin_db:
+          type: number
+          format: float
+        updated_at:
+          type: string
+          format: date-time
+
+    UpdateDeviceConfigRequest:
+      type: object
+      properties:
+        microphone_distance_m:
+          type: number
+          format: float
+          minimum: 0.02
+          maximum: 0.11
+        sample_rate:
+          type: integer
+          enum: [44100, 48000]
+        correlation_threshold:
+          type: number
+          format: float
+          minimum: 0.10
+          maximum: 1.00
+        sound_level_threshold_db:
+          type: number
+          format: float
+          minimum: -200.0
+          maximum: 200.0
+        db_spl_offset:
+          type: number
+          format: float
+          minimum: -100.0
+          maximum: 200.0
+        angle_offset_deg:
+          type: number
+          format: float
+          minimum: -180.0
+          maximum: 180.0
+        adaptive_threshold_enabled:
+          type: boolean
+        snr_margin_db:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 60.0
+
+    PaginatedMeasurements:
+      type: object
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/MeasurementRecord'
+
+    AcousticStats:
+      type: object
+      properties:
+        device_id:
+          type: integer
+        timeframe:
+          type: string
+        event_count:
+          type: integer
+        avg_spl_db:
+          type: number
+        peak_spl_db:
+          type: number
+        angular_bins_36:
+          type: array
+          description: Event counts in 36 ten-degree azimuth slices (-180 to +180)
+          items:
+            type: integer
+
+    DeviceSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum: ["online", "offline"]
+        last_seen_at:
+          type: string
+          format: date-time
+        clock_status:
+          type: string
+          enum: ["SNTP_UTC", "SERVER_UTC", "MONOTONIC_UPTIME", "UNKNOWN"]
+        sample_rate:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: "VALIDATION_ERROR"
+            message:
+              type: string
+              example: "Invalid sample_rate: must be 44100 or 48000"
+            status:
+              type: integer
+              example: 400
+            details:
+              type: object
+              nullable: true
