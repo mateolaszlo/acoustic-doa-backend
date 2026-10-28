@@ -34,5 +34,16 @@ CREATE TABLE IF NOT EXISTS measurements (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('admin', 'viewer')),
+  created_at TEXT NOT NULL,
+  last_login_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_measurements_device_time ON measurements (device_id, timestamp_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_measurements_time ON measurements (timestamp_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);

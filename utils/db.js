@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import bcrypt from 'bcryptjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +36,7 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
     console.warn('[DB] Warning: db/schema.sql not found; relying on existing database schema.');
   }
 
-  // Seed sample device 1 if database is empty
+  // 1. Seed sample device 1 if devices table is empty
   const countStmt = db.prepare('SELECT COUNT(*) as count FROM devices WHERE id = 1');
   const row = countStmt.get();
 
@@ -60,6 +61,28 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
     })();
 
     console.log(`[DB] Seeded initial device 1 (API key: ${defaultApiKey})`);
+  }
+
+  // 2. Seed default admin account if users table is empty
+  try {
+    const userCountStmt = db.prepare('SELECT COUNT(*) as count FROM users');
+    const userRow = userCountStmt.get();
+    if (userRow.count === 0) {
+      const adminUser = process.env.DEFAULT_ADMIN_USER || 'admin';
+      const adminEmail = process.env.DEFAULT_ADMIN_EMAIL || 'admin@acoustic-doa.local';
+      const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
+      const hash = bcrypt.hashSync(adminPassword, 10);
+      const now = new Date().toISOString();
+
+      const insertUser = db.prepare(`
+        INSERT INTO users (username, email, password_hash, role, created_at, last_login_at)
+        VALUES (?, ?, ?, 'admin', ?, ?)
+      `);
+      insertUser.run(adminUser, adminEmail, hash, now, null);
+      console.log(`[DB] Seeded initial administrator: ${adminUser} (role: admin)`);
+    }
+  } catch (err) {
+    console.warn('[DB] Users table check skipped:', err.message);
   }
 
   instance = db;

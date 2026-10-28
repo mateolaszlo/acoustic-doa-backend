@@ -651,3 +651,15 @@ components:
             details:
               type: object
               nullable: true
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Secret device API key provisioned in ESP32 edge node
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for authenticated web dashboard clients (Admin role required for hardware calibration)

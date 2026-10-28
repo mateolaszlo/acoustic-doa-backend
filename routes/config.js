@@ -1,11 +1,12 @@
 import { Router } from 'express';
 
-export function createConfigRoutes(calibrationService) {
+export function createConfigRoutes(calibrationService, authMiddleware = null) {
   const router = Router();
+  const adminGuard = authMiddleware ? [authMiddleware.authenticateJWT, authMiddleware.requireRole('admin')] : [];
 
   /**
    * GET /api/v1/devices/:device_id/config
-   * Retrieve current configuration
+   * Retrieve current configuration (Public read-only for radar display)
    */
   router.get('/devices/:device_id/config', (req, res) => {
     const deviceId = parseInt(req.params.device_id, 10);
@@ -26,9 +27,9 @@ export function createConfigRoutes(calibrationService) {
 
   /**
    * PUT /api/v1/devices/:device_id/config
-   * Update calibration parameters
+   * Update calibration parameters (Requires Admin Role)
    */
-  router.put('/devices/:device_id/config', (req, res) => {
+  router.put('/devices/:device_id/config', ...adminGuard, (req, res) => {
     const deviceId = parseInt(req.params.device_id, 10);
     const result = calibrationService.updateCalibration(deviceId, req.body);
 
@@ -47,9 +48,9 @@ export function createConfigRoutes(calibrationService) {
 
   /**
    * POST /api/v1/devices/:device_id/calibrate/zero-angle
-   * Trigger zero-angle calibration trim calculation
+   * Trigger zero-angle calibration trim calculation (Requires Admin Role)
    */
-  router.post('/devices/:device_id/calibrate/zero-angle', (req, res) => {
+  router.post('/devices/:device_id/calibrate/zero-angle', ...adminGuard, (req, res) => {
     const deviceId = parseInt(req.params.device_id, 10);
     const sampleCount = parseInt(req.body?.sample_count, 10) || 20;
 

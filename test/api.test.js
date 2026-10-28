@@ -9,6 +9,7 @@ describe('Acoustic DOA REST API Endpoints', () => {
   const TEST_DB = './test_acoustic_doa.db';
   let server;
   let baseUrl;
+  let adminToken;
 
   beforeAll(async () => {
     if (fs.existsSync(TEST_DB)) fs.unlinkSync(TEST_DB);
@@ -20,6 +21,15 @@ describe('Acoustic DOA REST API Endpoints', () => {
         resolve();
       });
     });
+
+    // Obtain admin token
+    const loginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'admin123' }),
+    });
+    const loginData = await loginRes.json();
+    adminToken = loginData.token;
   });
 
   afterAll(async () => {
@@ -100,7 +110,10 @@ describe('Acoustic DOA REST API Endpoints', () => {
   it('updates calibration configuration via PUT /config', async () => {
     const updateRes = await fetch(`${baseUrl}/api/v1/devices/1/config`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
       body: JSON.stringify({
         angle_offset_deg: 12.5,
         sound_level_threshold_db: 58.0,

@@ -11,12 +11,16 @@ import { initDatabase } from './utils/db.js';
 import { DeviceService } from './utils/device_service.js';
 import { CalibrationService } from './utils/calibration_service.js';
 import { MeasurementService } from './utils/measurement_service.js';
+import { AuthService } from './utils/auth_service.js';
+import { createAuthMiddleware } from './utils/auth_middleware.js';
 
 import { createIndexRoutes } from './routes/index.js';
 import { createDeviceRoutes } from './routes/devices.js';
 import { createMeasurementRoutes } from './routes/measurements.js';
 import { createConfigRoutes } from './routes/config.js';
 import { createSSERoutes } from './routes/stream.js';
+import { createAuthRoutes } from './routes/auth.js';
+import { createUserRoutes } from './routes/users.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,6 +33,8 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   const deviceService = new DeviceService(db);
   const calibrationService = new CalibrationService(db);
   const measurementService = new MeasurementService(db);
+  const authService = new AuthService(db);
+  const authMiddleware = createAuthMiddleware(authService);
 
   // 2. View Engine Setup (EJS templates matching course standards)
   app.set('views', path.join(__dirname, 'views'));
@@ -75,8 +81,10 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   const apiRouter = express.Router();
   apiRouter.use(createDeviceRoutes(deviceService, calibrationService));
   apiRouter.use(createMeasurementRoutes(measurementService, deviceService));
-  apiRouter.use(createConfigRoutes(calibrationService));
+  apiRouter.use(createConfigRoutes(calibrationService, authMiddleware));
   apiRouter.use(createSSERoutes());
+  apiRouter.use('/auth', createAuthRoutes(authService, authMiddleware));
+  apiRouter.use('/users', createUserRoutes(authService, authMiddleware));
 
   app.use('/api/v1', apiRouter);
 
