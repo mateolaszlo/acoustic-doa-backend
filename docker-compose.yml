@@ -12,6 +12,6 @@ services:
       - ./data:/app/data
       - ./certs:/app/certs:ro
     environment:
-      - HTTP_PORT=3000
-      - HTTPS_PORT=3443
-      - DB_PATH=/app/data/acoustic_doa.db
+      - PORT_HTTP=3000
+      - PORT_HTTPS=3443
+      - DATABASE_PATH=/app/data/app.db

@@ -1,14 +1,13 @@
-import { Router, Request, Response } from 'express';
-import { CalibrationService } from '../services/calibration_service.js';
+import { Router } from 'express';
 
-export function createConfigRoutes(calibrationService: CalibrationService): Router {
+export function createConfigRoutes(calibrationService) {
   const router = Router();
 
   /**
    * GET /api/v1/devices/:device_id/config
    * Retrieve current configuration
    */
-  router.get('/devices/:device_id/config', (req: Request, res: Response) => {
+  router.get('/devices/:device_id/config', (req, res) => {
     const deviceId = parseInt(req.params.device_id, 10);
     const calib = calibrationService.getCalibration(deviceId);
 
@@ -29,7 +28,7 @@ export function createConfigRoutes(calibrationService: CalibrationService): Rout
    * PUT /api/v1/devices/:device_id/config
    * Update calibration parameters
    */
-  router.put('/devices/:device_id/config', (req: Request, res: Response) => {
+  router.put('/devices/:device_id/config', (req, res) => {
     const deviceId = parseInt(req.params.device_id, 10);
     const result = calibrationService.updateCalibration(deviceId, req.body);
 
@@ -50,14 +49,14 @@ export function createConfigRoutes(calibrationService: CalibrationService): Rout
    * POST /api/v1/devices/:device_id/calibrate/zero-angle
    * Trigger zero-angle calibration trim calculation
    */
-  router.post('/devices/:device_id/calibrate/zero-angle', (req: Request, res: Response) => {
+  router.post('/devices/:device_id/calibrate/zero-angle', (req, res) => {
     const deviceId = parseInt(req.params.device_id, 10);
     const sampleCount = parseInt(req.body?.sample_count, 10) || 20;
 
     try {
       const result = calibrationService.calibrateZeroAngle(deviceId, sampleCount);
       return res.status(200).json(result);
-    } catch (err: any) {
+    } catch (err) {
       return res.status(400).json({
         error: {
           code: 'CALIBRATION_FAILED',
@@ -70,3 +69,5 @@ export function createConfigRoutes(calibrationService: CalibrationService): Rout
 
   return router;
 }
+
+export default createConfigRoutes;

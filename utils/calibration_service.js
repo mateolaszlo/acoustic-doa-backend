@@ -1,24 +1,11 @@
-import Database from 'better-sqlite3';
-import { validateCalibrationUpdate, DeviceCalibrationInput } from '../protocol/validator.js';
-
-export interface CalibrationData {
-  device_id: number;
-  microphone_distance_m: number;
-  sample_rate: number;
-  window_size: number;
-  correlation_threshold: number;
-  sound_level_threshold_db: number;
-  db_spl_offset: number;
-  angle_offset_deg: number;
-  adaptive_threshold_enabled: boolean;
-  snr_margin_db: number;
-  server_time_unix_ms: number;
-}
+import { validateCalibrationUpdate } from './validator.js';
 
 export class CalibrationService {
-  constructor(private db: Database.Database) {}
+  constructor(db) {
+    this.db = db;
+  }
 
-  public getCalibration(deviceId: number): CalibrationData | null {
+  getCalibration(deviceId) {
     const stmt = this.db.prepare(`
       SELECT device_id, microphone_distance_m, sample_rate, window_size,
              correlation_threshold, sound_level_threshold_db, db_spl_offset,
@@ -26,7 +13,7 @@ export class CalibrationService {
       FROM device_calibration
       WHERE device_id = ?
     `);
-    const row = stmt.get(deviceId) as any;
+    const row = stmt.get(deviceId);
     if (!row) return null;
 
     return {
@@ -44,7 +31,7 @@ export class CalibrationService {
     };
   }
 
-  public updateCalibration(deviceId: number, input: DeviceCalibrationInput): { success: boolean; error?: string; data?: any } {
+  updateCalibration(deviceId, input) {
     const validation = validateCalibrationUpdate(input);
     if (!validation.valid) {
       return { success: false, error: validation.error };
@@ -62,7 +49,10 @@ export class CalibrationService {
       sound_level_threshold_db: input.sound_level_threshold_db ?? current.sound_level_threshold_db,
       db_spl_offset: input.db_spl_offset ?? current.db_spl_offset,
       angle_offset_deg: input.angle_offset_deg ?? current.angle_offset_deg,
-      adaptive_threshold_enabled: input.adaptive_threshold_enabled !== undefined ? (input.adaptive_threshold_enabled ? 1 : 0) : (current.adaptive_threshold_enabled ? 1 : 0),
+      adaptive_threshold_enabled:
+        input.adaptive_threshold_enabled !== undefined
+          ? input.adaptive_threshold_enabled ? 1 : 0
+          : current.adaptive_threshold_enabled ? 1 : 0,
       snr_margin_db: input.snr_margin_db ?? current.snr_margin_db,
       updated_at: new Date().toISOString(),
     };
@@ -97,7 +87,7 @@ export class CalibrationService {
     return { success: true, data: this.getCalibration(deviceId) };
   }
 
-  public calibrateZeroAngle(deviceId: number, sampleCount = 20): { success: boolean; previousOffset: number; newOffset: number; samplesUsed: number } {
+  calibrateZeroAngle(deviceId, sampleCount = 20) {
     const current = this.getCalibration(deviceId);
     if (!current) {
       throw new Error(`Device ${deviceId} not found`);
@@ -111,7 +101,7 @@ export class CalibrationService {
       ORDER BY timestamp_ms DESC
       LIMIT ?
     `);
-    const rows = stmt.all(deviceId, sampleCount) as Array<{ angle_deg: number; confidence: number }>;
+    const rows = stmt.all(deviceId, sampleCount);
 
     if (rows.length === 0) {
       return {
@@ -150,3 +140,5 @@ export class CalibrationService {
     };
   }
 }
+
+export default CalibrationService;

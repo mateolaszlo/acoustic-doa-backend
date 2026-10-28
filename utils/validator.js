@@ -20,22 +20,14 @@ export const ANGLE_OFFSET_MAX_DEG = 180.0;
 export const SNR_MARGIN_MIN_DB = 0.0;
 export const SNR_MARGIN_MAX_DB = 60.0;
 
-export const SUPPORTED_SAMPLE_RATES = [44100, 48000] as const;
+export const SUPPORTED_SAMPLE_RATES = [44100, 48000];
 export const REQUIRED_WINDOW_SIZE = 1024;
 
-export interface DeviceCalibrationInput {
-  microphone_distance_m?: number;
-  sample_rate?: number;
-  window_size?: number;
-  correlation_threshold?: number;
-  sound_level_threshold_db?: number;
-  db_spl_offset?: number;
-  angle_offset_deg?: number;
-  adaptive_threshold_enabled?: boolean;
-  snr_margin_db?: number;
-}
+export function validateCalibrationUpdate(input) {
+  if (!input || typeof input !== 'object') {
+    return { valid: false, error: 'Request body must be a valid JSON object' };
+  }
 
-export function validateCalibrationUpdate(input: DeviceCalibrationInput): { valid: boolean; error?: string } {
   if (input.microphone_distance_m !== undefined) {
     if (!Number.isFinite(input.microphone_distance_m) ||
         input.microphone_distance_m < MIN_MIC_DISTANCE_M ||
@@ -45,7 +37,7 @@ export function validateCalibrationUpdate(input: DeviceCalibrationInput): { vali
   }
 
   if (input.sample_rate !== undefined) {
-    if (!SUPPORTED_SAMPLE_RATES.includes(input.sample_rate as any)) {
+    if (!SUPPORTED_SAMPLE_RATES.includes(input.sample_rate)) {
       return { valid: false, error: `sample_rate must be 44100 or 48000 Hz` };
     }
   }

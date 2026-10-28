@@ -1,26 +1,24 @@
-FROM node:20-alpine AS builder
+FROM node:20-alpine
 
-WORKDIR /app
-COPY package*.json tsconfig.json ./
-RUN npm ci
-
-COPY src/ ./src/
-COPY openapi.yaml ./
-RUN npm run build
-
-FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV HTTP_PORT=3000
-ENV HTTPS_PORT=3443
+ENV PORT_HTTP=3000
+ENV PORT_HTTPS=3443
+
+# Install dependencies including build tools for better-sqlite3 native compilation
+RUN apk add --no-cache python3 make g++
 
 COPY package*.json ./
 RUN npm ci --only=production
 
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src/db/schema.sql ./dist/db/schema.sql
-COPY openapi.yaml ./
+COPY app.js ./
+COPY bin/ ./bin/
+COPY routes/ ./routes/
+COPY utils/ ./utils/
+COPY views/ ./views/
+COPY public/ ./public/
+COPY db/ ./db/
 
 EXPOSE 3000 3443
-CMD ["node", "dist/index.js"]
+CMD ["node", "./bin/www"]

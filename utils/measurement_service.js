@@ -1,19 +1,9 @@
-import Database from 'better-sqlite3';
-import { DecodedBatch } from '../protocol/binary_types.js';
-
-export interface QueryOptions {
-  startTime?: number;
-  endTime?: number;
-  minConfidence?: number;
-  minSplDb?: number;
-  limit?: number;
-  offset?: number;
-}
-
 export class MeasurementService {
-  constructor(private db: Database.Database) {}
+  constructor(db) {
+    this.db = db;
+  }
 
-  public insertBatch(deviceId: number, batch: DecodedBatch): number {
+  insertBatch(deviceId, batch) {
     const insertStmt = this.db.prepare(`
       INSERT INTO measurements (
         device_id, timestamp_ms, clock_flags, angle_deg, delay_us,
@@ -42,7 +32,7 @@ export class MeasurementService {
     return batch.records.length;
   }
 
-  public getLatestMeasurements(deviceId: number, sinceTimestampMs = 0, limit = 50): Array<any> {
+  getLatestMeasurements(deviceId, sinceTimestampMs = 0, limit = 50) {
     const stmt = this.db.prepare(`
       SELECT id, timestamp_ms, angle_deg, delay_us, sound_level_db, confidence
       FROM measurements
@@ -50,13 +40,13 @@ export class MeasurementService {
       ORDER BY timestamp_ms DESC
       LIMIT ?
     `);
-    const rows = stmt.all(deviceId, sinceTimestampMs, limit) as any[];
+    const rows = stmt.all(deviceId, sinceTimestampMs, limit);
     return rows.reverse(); // Return in chronological order
   }
 
-  public queryMeasurements(deviceId: number, options: QueryOptions): { total: number; records: any[] } {
+  queryMeasurements(deviceId, options = {}) {
     const conditions = ['device_id = ?'];
-    const params: any[] = [deviceId];
+    const params = [deviceId];
 
     if (options.startTime !== undefined) {
       conditions.push('timestamp_ms >= ?');
@@ -78,7 +68,7 @@ export class MeasurementService {
     const whereClause = conditions.join(' AND ');
 
     const countStmt = this.db.prepare(`SELECT COUNT(*) as count FROM measurements WHERE ${whereClause}`);
-    const countRow = countStmt.get(...params) as { count: number };
+    const countRow = countStmt.get(...params);
 
     const limit = options.limit || 100;
     const offset = options.offset || 0;
@@ -98,7 +88,7 @@ export class MeasurementService {
     };
   }
 
-  public getStats(deviceId: number, timeframe = '1h'): any {
+  getStats(deviceId, timeframe = '1h') {
     let durationMs = 3600000;
     if (timeframe === '15m') durationMs = 15 * 60 * 1000;
     else if (timeframe === '24h') durationMs = 24 * 3600 * 1000;
@@ -114,7 +104,7 @@ export class MeasurementService {
       FROM measurements
       WHERE device_id = ? AND timestamp_ms >= ?
     `);
-    const agg = aggStmt.get(deviceId, cutoffMs) as any;
+    const agg = aggStmt.get(deviceId, cutoffMs);
 
     // 36 angular bins of 10 degrees each: [-180, -170), [-170, -160), ..., [+170, +180]
     const bins = new Array(36).fill(0);
@@ -124,7 +114,7 @@ export class MeasurementService {
       FROM measurements
       WHERE device_id = ? AND timestamp_ms >= ?
     `);
-    const angleRows = angleStmt.all(deviceId, cutoffMs) as Array<{ angle_deg: number; confidence: number }>;
+    const angleRows = angleStmt.all(deviceId, cutoffMs);
 
     for (const r of angleRows) {
       // Map angle in [-180, 180] to bin 0..35
@@ -145,3 +135,5 @@ export class MeasurementService {
     };
   }
 }
+
+export default MeasurementService;

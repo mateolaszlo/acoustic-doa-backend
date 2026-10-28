@@ -6,7 +6,13 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export function initDatabase(dbPath = './acoustic_doa.db'): Database.Database {
+let instance = null;
+
+export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
+  if (instance && instance.open) {
+    return instance;
+  }
+
   const db = new Database(dbPath);
 
   // High performance configuration for fast batch inserts and concurrent SSE reads
@@ -15,19 +21,23 @@ export function initDatabase(dbPath = './acoustic_doa.db'): Database.Database {
   db.pragma('foreign_keys = ON');
 
   // Load and apply schema
-  let schemaPath = path.join(__dirname, 'schema.sql');
-  if (!fs.existsSync(schemaPath)) {
-    schemaPath = path.resolve(__dirname, '../../src/db/schema.sql');
+  const candidateSchemaPaths = [
+    path.resolve(__dirname, '../db/schema.sql'),
+    path.resolve(process.cwd(), 'db/schema.sql'),
+    path.resolve(__dirname, '../../db/schema.sql'),
+  ];
+  const schemaPath = candidateSchemaPaths.find((p) => fs.existsSync(p));
+
+  if (schemaPath) {
+    const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
+    db.exec(schemaSql);
+  } else {
+    console.warn('[DB] Warning: db/schema.sql not found; relying on existing database schema.');
   }
-  if (!fs.existsSync(schemaPath)) {
-    schemaPath = path.resolve(__dirname, '../src/db/schema.sql');
-  }
-  const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
-  db.exec(schemaSql);
 
   // Seed sample device 1 if database is empty
   const countStmt = db.prepare('SELECT COUNT(*) as count FROM devices WHERE id = 1');
-  const row = countStmt.get() as { count: number };
+  const row = countStmt.get();
 
   if (row.count === 0) {
     const now = new Date().toISOString();
@@ -52,5 +62,15 @@ export function initDatabase(dbPath = './acoustic_doa.db'): Database.Database {
     console.log(`[DB] Seeded initial device 1 (API key: ${defaultApiKey})`);
   }
 
+  instance = db;
   return db;
 }
+
+export function getDatabase() {
+  if (!instance || !instance.open) {
+    return initDatabase();
+  }
+  return instance;
+}
+
+export default getDatabase;

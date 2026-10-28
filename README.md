@@ -1,18 +1,25 @@
 # Acoustic DOA Backend Server
 
-High-performance REST API and Server-Sent Events (SSE) streaming server for the **ESP32 Acoustic Direction of Arrival (DOA)** tracking platform.
+High-performance REST API and Server-Sent Events (SSE) streaming server for the **ESP32 Acoustic Direction of Arrival (DOA)** tracking platform. Built in modern JavaScript (ES Modules) following the standard university course architecture (`express-generator` style: `bin/www`, `app.js`, `routes/`, `utils/`, `views/`, and `public/`).
 
 ---
 
 ## 🌟 Architecture & Features
 
+- **Standard Course Architecture:** Matches the university course structure (*Vaja 2, 3 in 4*):
+  - `bin/www`: Dual-port startup script (HTTP + HTTPS listeners, graceful error handling).
+  - `app.js`: Express application configuration, middleware, and route mounting.
+  - `routes/`: Modular endpoints (`devices.js`, `measurements.js`, `config.js`, `stream.js`, `index.js`).
+  - `utils/`: Database management (`db.js`), binary Little-Endian packet decoder (`binary_parser.js`), input validator, and SSE broadcaster.
+  - `views/`: EJS templates for the web landing status page (`index.ejs`) and error views.
+  - `public/`: Static documentation assets and OpenAPI specification (`openapi.yaml`).
 - **Dual-Tier Security Architecture:**
   - **HTTP Device Ingestion (Port 3000):** Lightweight HTTP with `x-api-key` authentication for the ESP32 edge node to eliminate TLS handshake latency and crypto memory overhead on the micro-controller.
-  - **HTTPS Management & Streaming (Port 3443):** Strict TLS 1.3 encrypted gateway with CORS protection for the web visualizer dashboard and management clients.
+  - **HTTPS Management & Streaming (Port 3443):** Strict TLS encrypted gateway with CORS protection for the web visualizer dashboard and management clients.
 - **Hardware-Compatible Binary Decoder:** Strictly unpacks the Little-Endian 12-byte header + $N \times 20$-byte records ($1 \le N \le 24$) defined in the ESP32 firmware (`src/network/rest_protocol.h`).
 - **Server-Sent Events (SSE) Live Stream:** Sub-20ms real-time event push over pure HTTP (`GET /api/v1/devices/:id/stream`) for the 60fps web visualizer radar canvas.
 - **SQLite Persistence with WAL Mode:** High concurrency file-based storage using `better-sqlite3`, capable of thousands of writes per second with zero external database daemons.
-- **OpenAPI 3.1 & Interactive Swagger UI:** Complete machine-readable contract at `openapi.yaml` and interactive browser documentation served at `/api/docs`.
+- **OpenAPI 3.1 & Interactive Swagger UI:** Complete machine-readable contract at `public/openapi.yaml` and interactive browser documentation served at `/api/docs`.
 - **Remote Device Calibration Engine:** Allows web dashboard users to update array distance, zero-angle offsets, SNR margins, and SPL thresholds, which are automatically synced to the ESP32 on its next 60s poll.
 
 ---
@@ -33,14 +40,19 @@ npm install
 bash certs/generate_certs.sh
 ```
 
-### 4. Run Development Server
+### 4. Run Server
 ```bash
+# Production mode (runs bin/www directly)
+npm start
+
+# Development mode (with nodemon auto-restart on code changes)
 npm run dev
 ```
 
 The server starts two gateways:
 - **HTTP Ingestion:** `http://localhost:3000`
 - **HTTPS Client Gateway:** `https://localhost:3443`
+- **Web Landing Page:** `http://localhost:3000/`
 - **Interactive Swagger Documentation:** `http://localhost:3000/api/docs`
 
 ### 5. Run Synthetic ESP32 Simulator
@@ -56,20 +68,62 @@ npm test
 
 ---
 
+## 📁 Project Directory Layout
+
+```text
+acoustic-doa-backend/
+├── bin/
+│   └── www                       # Executable server bootstrap (HTTP 3000 + HTTPS 3443)
+├── routes/
+│   ├── index.js                  # Landing page & /health check
+│   ├── devices.js                # ESP32 calibration poll & heartbeat
+│   ├── measurements.js           # Binary batch ingestion & historical queries
+│   ├── config.js                 # Web dashboard remote array calibration
+│   └── stream.js                 # Server-Sent Events (SSE) live telemetry stream
+├── utils/
+│   ├── db.js                     # SQLite initialization, WAL pragma & migrations
+│   ├── binary_parser.js          # 12B header + 20B record Little-Endian buffer decoder
+│   ├── validator.js              # Acoustic parameter bounds validator
+│   ├── sse_broadcaster.js        # SSE connection pool & 15s heartbeats
+│   ├── device_service.js         # Device authentication & state queries
+│   ├── calibration_service.js    # Calibration profiles & zero-angle trim
+│   └── measurement_service.js    # Batch inserts & 36-bin angular statistics
+├── views/
+│   ├── index.ejs                 # HTML landing page with active device status
+│   └── error.ejs                 # Standard error view template
+├── public/
+│   └── openapi.yaml              # OpenAPI 3.1 specification & Swagger assets
+├── db/
+│   └── schema.sql                # SQL tables for devices, calibration, measurements
+├── certs/
+│   └── generate_certs.sh         # Local TLS certificate generator
+├── scripts/
+│   └── simulate_esp32.js         # Synthetic ESP32 DOA array batch generator
+├── test/
+│   ├── api.test.js               # REST & SSE integration tests (Vitest)
+│   └── binary_parser.test.js     # Bit-level protocol unit tests (Vitest)
+├── app.js                        # Express application & middleware setup
+├── app.db                        # SQLite database file
+└── package.json                  # Pure ES Module dependencies
+```
+
+---
+
 ## 📡 REST API Reference
 
 | Method | Endpoint | Consumer | Auth | Description |
 |:---:|:---|:---|:---:|:---|
 | `GET` | `/api/v1/devices/:id/calibration` | ESP32 | `x-api-key` | Retrieve DSP parameters and server UTC time |
 | `POST` | `/api/v1/measurements` | ESP32 | `x-api-key` | Ingest binary batch ($12 + 20N$ bytes) |
-| `GET` | `/api/v1/devices/:id/stream` | Web Client | Bearer | Real-time Server-Sent Events (SSE) telemetry stream |
-| `GET` | `/api/v1/devices/:id/measurements/latest` | Web Client | Bearer | Poll newest records since timestamp |
-| `GET` | `/api/v1/devices/:id/measurements` | Web Client | Bearer | Query historical measurements with filters |
-| `GET` | `/api/v1/devices/:id/config` | Web Client | Bearer | View active device calibration profile |
-| `PUT` | `/api/v1/devices/:id/config` | Web Client | Bearer | Update calibration parameters remotely |
-| `POST` | `/api/v1/devices/:id/calibrate/zero-angle` | Web Client | Bearer | Compute and apply circular mean zero-angle trim |
-| `GET` | `/api/v1/devices/:id/stats` | Web Client | Bearer | Retrieve 36-bin polar histogram and peak SPL |
-| `GET` | `/api/v1/devices` | Web Client | Bearer | List registered devices and online status |
+| `GET` | `/api/v1/devices/:id/stream` | Web Client | None | Real-time Server-Sent Events (SSE) telemetry stream |
+| `GET` | `/api/v1/devices/:id/measurements/latest` | Web Client | None | Poll newest records since timestamp |
+| `GET` | `/api/v1/devices/:id/measurements` | Web Client | None | Query historical measurements with filters |
+| `GET` | `/api/v1/devices/:id/config` | Web Client | None | View active device calibration profile |
+| `PUT` | `/api/v1/devices/:id/config` | Web Client | None | Update calibration parameters remotely |
+| `POST` | `/api/v1/devices/:id/calibrate/zero-angle` | Web Client | None | Compute and apply circular mean zero-angle trim |
+| `GET` | `/api/v1/devices/:id/stats` | Web Client | None | Retrieve 36-bin polar histogram and peak SPL |
+| `GET` | `/api/v1/devices` | Web Client | None | List registered devices and online status |
+| `GET` | `/health` | All | None | Server uptime and health probe |
 
 ---
 

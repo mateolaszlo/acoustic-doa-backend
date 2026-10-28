@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Error <%= error && error.status ? error.status : 500 %></title>
+  <style>
+    body { font-family: monospace; padding: 40px; background: #0f172a; color: #f87171; }
+    h1 { color: #ef4444; }
+    pre { background: #1e293b; padding: 16px; border-radius: 8px; color: #f1f5f9; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1><%= message %></h1>
+  <h2><%= error && error.status ? error.status : 500 %></h2>
+  <% if (error && error.stack) { %>
+    <pre><%= error.stack %></pre>
+  <% } %>
+</body>
+</html>

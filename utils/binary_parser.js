@@ -1,30 +1,28 @@
-import {
-  MEASUREMENT_BATCH_VERSION,
-  MEASUREMENT_BATCH_HEADER_SIZE,
-  MEASUREMENT_RECORD_SIZE,
-  CLOCK_FLAG_UTC_SYNCHRONIZED,
-  CLOCK_FLAG_SERVER_SYNCHRONIZED,
-  CLOCK_FLAG_SERVER_MIDPOINT,
-  CLOCK_FLAG_MONOTONIC_UPTIME,
-  BatchHeader,
-  DecodedBatch,
-  DecodedMeasurement,
-  ClockSource,
-} from './binary_types.js';
+/**
+ * Binary protocol parser matching ESP32 firmware (src/network/rest_protocol.h)
+ * Format version 1: 12-byte Little-Endian batch header + 20-byte per-measurement records
+ */
 
-export interface ParseResult {
-  success: boolean;
-  batch?: DecodedBatch;
-  error?: string;
-  statusCode?: number;
-}
+export const MEASUREMENT_BATCH_VERSION = 1;
+export const MEASUREMENT_BATCH_HEADER_SIZE = 12;
+export const MEASUREMENT_RECORD_SIZE = 20;
 
-export function parseBinaryBatch(buffer: Buffer): ParseResult {
-  if (buffer.length < MEASUREMENT_BATCH_HEADER_SIZE) {
+export const CLOCK_FLAG_UTC_SYNCHRONIZED = 0x0001;
+export const CLOCK_FLAG_SERVER_SYNCHRONIZED = 0x0002;
+export const CLOCK_FLAG_SERVER_MIDPOINT = 0x0003;
+export const CLOCK_FLAG_MONOTONIC_UPTIME = 0x0004;
+
+/**
+ * Parses a binary measurement batch payload received via POST /api/v1/measurements
+ * @param {Buffer} buffer - Raw octet-stream bytes
+ * @returns {{ success: boolean, batch?: object, error?: string, statusCode?: number }}
+ */
+export function parseBinaryBatch(buffer) {
+  if (!buffer || buffer.length < MEASUREMENT_BATCH_HEADER_SIZE) {
     return {
       success: false,
       statusCode: 400,
-      error: `Payload too small: ${buffer.length} bytes (minimum header size is ${MEASUREMENT_BATCH_HEADER_SIZE} bytes)`,
+      error: `Payload too small: ${buffer ? buffer.length : 0} bytes (minimum header size is ${MEASUREMENT_BATCH_HEADER_SIZE} bytes)`,
     };
   }
 
@@ -59,7 +57,7 @@ export function parseBinaryBatch(buffer: Buffer): ParseResult {
     };
   }
 
-  let clockSource: ClockSource = 'UNKNOWN';
+  let clockSource = 'UNKNOWN';
   if ((clockFlags & CLOCK_FLAG_UTC_SYNCHRONIZED) !== 0) {
     clockSource = 'SNTP_UTC';
   } else if ((clockFlags & (CLOCK_FLAG_SERVER_SYNCHRONIZED | CLOCK_FLAG_SERVER_MIDPOINT)) !== 0) {
@@ -68,7 +66,7 @@ export function parseBinaryBatch(buffer: Buffer): ParseResult {
     clockSource = 'MONOTONIC_UPTIME';
   }
 
-  const header: BatchHeader = {
+  const header = {
     formatVersion,
     measurementCount,
     clockFlags,
@@ -77,7 +75,7 @@ export function parseBinaryBatch(buffer: Buffer): ParseResult {
   };
 
   // 2. Decode contiguous 20-byte records
-  const records: DecodedMeasurement[] = [];
+  const records = [];
   let offset = MEASUREMENT_BATCH_HEADER_SIZE;
   const baseMsNumber = Number(baseTimestampMs);
 
@@ -137,17 +135,7 @@ export function parseBinaryBatch(buffer: Buffer): ParseResult {
 /**
  * Encodes a synthetic batch for testing or simulation
  */
-export function encodeBinaryBatch(
-  baseTimestampMs: bigint,
-  clockFlags: number,
-  records: Array<{
-    offsetMs: number;
-    angleDeg: number;
-    delayUs: number;
-    soundLevelDb: number;
-    confidence: number;
-  }>
-): Buffer {
+export function encodeBinaryBatch(baseTimestampMs, clockFlags, records) {
   const count = records.length;
   if (count < 1 || count > 24) {
     throw new Error(`Record count ${count} must be between 1 and 24`);
@@ -160,7 +148,7 @@ export function encodeBinaryBatch(
   buffer.writeUInt8(MEASUREMENT_BATCH_VERSION, 0);
   buffer.writeUInt8(count, 1);
   buffer.writeUInt16LE(clockFlags, 2);
-  buffer.writeBigUInt64LE(baseTimestampMs, 4);
+  buffer.writeBigUInt64LE(BigInt(baseTimestampMs), 4);
 
   // 20-byte records
   let offset = MEASUREMENT_BATCH_HEADER_SIZE;

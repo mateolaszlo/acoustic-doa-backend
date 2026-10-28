@@ -1,24 +1,17 @@
-import { Response } from 'express';
-import { DecodedBatch } from '../protocol/binary_types.js';
-
-interface SSEClient {
-  id: string;
-  deviceId: number;
-  res: Response;
-}
+/**
+ * Server-Sent Events (SSE) Broadcaster
+ * Manages active web client subscriptions, sends heartbeats, and broadcasts live measurement batches
+ */
 
 class SSEBroadcaster {
-  private clients: Map<string, SSEClient> = new Map();
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-
   constructor() {
-    // Send heartbeat every 15 seconds to prevent proxy / middlebox idle drops
+    this.clients = new Map();
     this.heartbeatInterval = setInterval(() => {
       this.sendHeartbeat();
     }, 15000);
   }
 
-  public addClient(clientId: string, deviceId: number, res: Response): void {
+  addClient(clientId, deviceId, res) {
     // Set mandatory SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -26,7 +19,7 @@ class SSEBroadcaster {
     res.setHeader('X-Accel-Buffering', 'no'); // Disable buffering on NGINX
     res.flushHeaders?.();
 
-    const client: SSEClient = { id: clientId, deviceId, res };
+    const client = { id: clientId, deviceId, res };
     this.clients.set(clientId, client);
 
     // Initial connection event
@@ -39,14 +32,14 @@ class SSEBroadcaster {
     console.log(`[SSE] Client connected: ${clientId} for device ${deviceId} (total: ${this.clients.size})`);
   }
 
-  public removeClient(clientId: string): void {
+  removeClient(clientId) {
     if (this.clients.has(clientId)) {
       this.clients.delete(clientId);
       console.log(`[SSE] Client disconnected: ${clientId} (total: ${this.clients.size})`);
     }
   }
 
-  public broadcastBatch(deviceId: number, batch: DecodedBatch): void {
+  broadcastBatch(deviceId, batch) {
     const payload = JSON.stringify({
       deviceId,
       clockFlags: batch.header.clockFlags,
@@ -69,7 +62,7 @@ class SSEBroadcaster {
     }
   }
 
-  private sendHeartbeat(): void {
+  sendHeartbeat() {
     const heartbeat = `event: heartbeat\ndata: ${JSON.stringify({ server_time_unix_ms: Date.now() })}\n\n`;
     for (const [id, client] of this.clients.entries()) {
       try {
@@ -80,7 +73,11 @@ class SSEBroadcaster {
     }
   }
 
-  public close(): void {
+  getClientCount() {
+    return this.clients.size;
+  }
+
+  close() {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
@@ -95,3 +92,4 @@ class SSEBroadcaster {
 }
 
 export const sseBroadcaster = new SSEBroadcaster();
+export default sseBroadcaster;

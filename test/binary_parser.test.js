@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseBinaryBatch, encodeBinaryBatch } from '../src/protocol/binary_parser.js';
 import {
+  parseBinaryBatch,
+  encodeBinaryBatch,
   CLOCK_FLAG_UTC_SYNCHRONIZED,
   CLOCK_FLAG_SERVER_SYNCHRONIZED,
   CLOCK_FLAG_MONOTONIC_UPTIME,
-} from '../src/protocol/binary_types.js';
+} from '../utils/binary_parser.js';
 
 describe('Binary Protocol Parser (POST /api/v1/measurements)', () => {
   it('correctly decodes a valid single-record binary batch', () => {
@@ -26,7 +27,7 @@ describe('Binary Protocol Parser (POST /api/v1/measurements)', () => {
     expect(res.success).toBe(true);
     expect(res.batch).toBeDefined();
 
-    const batch = res.batch!;
+    const batch = res.batch;
     expect(batch.header.formatVersion).toBe(1);
     expect(batch.header.measurementCount).toBe(1);
     expect(batch.header.clockSource).toBe('SNTP_UTC');
@@ -60,8 +61,8 @@ describe('Binary Protocol Parser (POST /api/v1/measurements)', () => {
 
     const res = parseBinaryBatch(buffer);
     expect(res.success).toBe(true);
-    expect(res.batch?.records.length).toBe(24);
-    expect(res.batch?.header.clockSource).toBe('SERVER_UTC');
+    expect(res.batch.records.length).toBe(24);
+    expect(res.batch.header.clockSource).toBe('SERVER_UTC');
   });
 
   it('identifies monotonic uptime clock flags', () => {
@@ -79,7 +80,7 @@ describe('Binary Protocol Parser (POST /api/v1/measurements)', () => {
     const buffer = encodeBinaryBatch(baseMs, CLOCK_FLAG_MONOTONIC_UPTIME, records);
     const res = parseBinaryBatch(buffer);
     expect(res.success).toBe(true);
-    expect(res.batch?.header.clockSource).toBe('MONOTONIC_UPTIME');
+    expect(res.batch.header.clockSource).toBe('MONOTONIC_UPTIME');
   });
 
   it('rejects payloads smaller than 12 bytes', () => {

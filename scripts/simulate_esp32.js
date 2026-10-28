@@ -5,20 +5,19 @@
  */
 
 import http from 'node:http';
-import { encodeBinaryBatch } from '../src/protocol/binary_parser.js';
-import { CLOCK_FLAG_UTC_SYNCHRONIZED } from '../src/protocol/binary_types.js';
+import { encodeBinaryBatch, CLOCK_FLAG_UTC_SYNCHRONIZED } from '../utils/binary_parser.js';
 
 const TARGET_HOST = process.env.API_HOST || '127.0.0.1';
-const TARGET_PORT = parseInt(process.env.API_PORT || '3000', 10);
+const TARGET_PORT = parseInt(process.env.PORT_HTTP || process.env.API_PORT || '3000', 10);
 const DEVICE_ID = 1;
-const API_KEY = process.env.API_KEY || 'esp32-acoustic-doa-secret-key-1';
+const API_KEY = process.env.DEFAULT_DEVICE_API_KEY || process.env.API_KEY || 'esp32-acoustic-doa-secret-key-1';
 const BATCH_INTERVAL_MS = 200; // 5 requests per second
 const MAX_ITERATIONS = process.env.MAX_BATCHES ? parseInt(process.env.MAX_BATCHES, 10) : 100;
 
 console.log(`[Simulator] Starting ESP32 DOA Simulator against http://${TARGET_HOST}:${TARGET_PORT}`);
 
 // 1. Fetch Calibration Settings
-function fetchCalibration(): Promise<any> {
+function fetchCalibration() {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -31,9 +30,9 @@ function fetchCalibration(): Promise<any> {
           Accept: 'application/json',
         },
       },
-      res => {
+      (res) => {
         let body = '';
-        res.on('data', chunk => (body += chunk));
+        res.on('data', (chunk) => (body += chunk));
         res.on('end', () => {
           if (res.statusCode === 200) {
             resolve(JSON.parse(body));
@@ -49,7 +48,7 @@ function fetchCalibration(): Promise<any> {
 }
 
 // 2. Post Binary Measurement Batch
-function postBinaryBatch(payload: Buffer): Promise<any> {
+function postBinaryBatch(payload) {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -64,9 +63,9 @@ function postBinaryBatch(payload: Buffer): Promise<any> {
           Connection: 'keep-alive',
         },
       },
-      res => {
+      (res) => {
         let body = '';
-        res.on('data', chunk => (body += chunk));
+        res.on('data', (chunk) => (body += chunk));
         res.on('end', () => {
           if (res.statusCode === 200) {
             resolve(JSON.parse(body));
@@ -128,11 +127,11 @@ async function run() {
           console.log('\n[Simulator] Simulation completed successfully!');
           process.exit(0);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('\n[Simulator] Batch upload error:', err.message);
       }
     }, BATCH_INTERVAL_MS);
-  } catch (err: any) {
+  } catch (err) {
     console.error('[Simulator] Fatal error:', err.message);
     process.exit(1);
   }
