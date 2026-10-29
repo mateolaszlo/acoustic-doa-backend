@@ -117,8 +117,9 @@ export function createMeasurementRoutes(measurementService, deviceService) {
   router.get('/devices/:device_id/stats', (req, res) => {
     const deviceId = parseInt(req.params.device_id, 10);
     const timeframe = req.query.timeframe || '1h';
+    const sinceMs = req.query.since_ms ? parseInt(req.query.since_ms, 10) : null;
 
-    const stats = measurementService.getStats(deviceId, timeframe);
+    const stats = measurementService.getStats(deviceId, timeframe, sinceMs);
     return res.status(200).json(stats);
   });
 

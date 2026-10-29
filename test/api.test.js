@@ -206,6 +206,15 @@ describe('Acoustic DOA REST API Endpoints', () => {
     expect(stats.eventCount).toBeGreaterThanOrEqual(2);
   });
 
+  it('computes acoustic statistics respecting since_ms session filter', async () => {
+    const futureMs = Date.now() + 100000;
+    const res = await fetch(`${baseUrl}/api/v1/devices/1/stats?timeframe=24h&since_ms=${futureMs}`);
+    expect(res.status).toBe(200);
+    const stats = await res.json();
+    expect(stats.eventCount).toBe(0);
+    expect(stats.angularBins36.every((b) => b === 0)).toBe(true);
+  });
+
   it('broadcasts real-time events to SSE subscribers on binary batch upload', async () => {
     // 1. Open SSE stream
     const sseChunks = [];

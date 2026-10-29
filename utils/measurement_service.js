@@ -88,13 +88,16 @@ export class MeasurementService {
     };
   }
 
-  getStats(deviceId, timeframe = '1h') {
+  getStats(deviceId, timeframe = '1h', sinceMs = null) {
     let durationMs = 3600000;
     if (timeframe === '15m') durationMs = 15 * 60 * 1000;
     else if (timeframe === '24h') durationMs = 24 * 3600 * 1000;
     else if (timeframe === '7d') durationMs = 7 * 24 * 3600 * 1000;
 
-    const cutoffMs = Date.now() - durationMs;
+    let cutoffMs = Date.now() - durationMs;
+    if (sinceMs && !isNaN(sinceMs) && sinceMs > cutoffMs) {
+      cutoffMs = sinceMs;
+    }
 
     // Aggregate metrics
     const aggStmt = this.db.prepare(`
