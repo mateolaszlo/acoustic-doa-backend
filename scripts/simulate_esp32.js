@@ -119,7 +119,7 @@ async function run() {
         batchCount++;
 
         process.stdout.write(
-          `\r[Simulator] Uploaded batch #${batchCount}/${MAX_ITERATIONS} (${records.length} records, azimuth: ${records[0].angleDeg.toFixed(1)}°, SPL: ${records[0].soundLevelDb.toFixed(1)} dB)`
+          `\r[Simulator] Uploaded batch #${batchCount}/${MAX_ITERATIONS} (${records.length} records, ${buffer.length}B with CRC32, azimuth: ${records[0].angleDeg.toFixed(1)}°, SPL: ${records[0].soundLevelDb.toFixed(1)} dB)`
         );
 
         if (batchCount >= MAX_ITERATIONS) {

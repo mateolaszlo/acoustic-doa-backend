@@ -114,7 +114,7 @@ acoustic-doa-backend/
 | Method | Endpoint | Consumer | Auth | Description |
 |:---:|:---|:---|:---:|:---|
 | `GET` | `/api/v1/devices/:id/calibration` | ESP32 | `x-api-key` | Retrieve DSP parameters and server UTC time |
-| `POST` | `/api/v1/measurements` | ESP32 | `x-api-key` | Ingest binary batch ($12 + 20N$ bytes) |
+| `POST` | `/api/v1/measurements` | ESP32 | `x-api-key` | Ingest binary batch ($12 + 20N + 4$ bytes with CRC32) |
 | `GET` | `/api/v1/devices/:id/stream` | Web Client | None | Real-time Server-Sent Events (SSE) telemetry stream |
 | `GET` | `/api/v1/devices/:id/measurements/latest` | Web Client | None | Poll newest records since timestamp |
 | `GET` | `/api/v1/devices/:id/measurements` | Web Client | None | Query historical measurements with filters |
@@ -129,7 +129,7 @@ acoustic-doa-backend/
 
 ## 📦 Binary Ingestion Format (POST /measurements)
 
-The binary payload consists of a 12-byte header followed by $N$ contiguous 20-byte records:
+The binary payload consists of a 12-byte header, $N$ contiguous 20-byte records, and terminates with a 4-byte IEEE 802.3 CRC32 trailer (Total: $12 + 20N + 4$ bytes):
 
 ### 12-Byte Header (Little-Endian)
 - `[0]` `format_version`: uint8 = 1
@@ -143,5 +143,8 @@ The binary payload consists of a 12-byte header followed by $N$ contiguous 20-by
 - `[+8..+11]` `delay_us`: float32_le
 - `[+12..+15]` `sound_level_db`: float32_le (calibrated dB SPL)
 - `[+16..+19]` `confidence`: float32_le ($[0.0, 1.0]$)
+
+### 4-Byte Trailer (Little-Endian)
+- `[12+20N .. 15+20N]` `crc32`: uint32_le (IEEE 802.3 checksum over preceding $12 + 20N$ bytes)
 
 See [`docs/BINARY_PROTOCOL.md`](docs/BINARY_PROTOCOL.md) for complete byte layout specifications.

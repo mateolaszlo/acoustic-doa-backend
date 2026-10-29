@@ -78,7 +78,8 @@ paths:
       description: >
         High-throughput binary batch endpoint streamed by the ESP32 at up to 5 Hz.
         Payload consists of a 12-byte little-endian header followed by N contiguous 20-byte records
-        (1 <= N <= 24). Total byte size is strictly 12 + 20*N bytes.
+        (1 <= N <= 24) and terminates with a 4-byte IEEE 802.3 CRC32 trailer (Little-Endian).
+        Total byte size is strictly 12 + 20*N + 4 bytes (36 to 496 bytes).
       operationId: uploadMeasurementBatch
       tags:
         - Device Ingestion
@@ -92,7 +93,7 @@ paths:
             example: "esp32-acoustic-doa-secret-key-1"
       requestBody:
         required: true
-        description: Binary measurement batch (12-byte header + 20-byte records)
+        description: Binary measurement batch (12-byte header + 20-byte records + 4-byte CRC32 trailer)
         content:
           application/octet-stream:
             schema:
@@ -100,7 +101,7 @@ paths:
               format: binary
       responses:
         '200':
-          description: Batch accepted, decoded, persisted, and broadcast to SSE clients
+          description: Batch accepted, CRC32 verified, decoded, persisted, and broadcast to SSE clients
           content:
             application/json:
               schema:
@@ -112,7 +113,7 @@ paths:
                 clock_source: "SNTP_UTC"
                 received_at: "2026-10-26T17:45:00.120Z"
         '400':
-          description: Malformed binary payload (invalid size, unknown version, count > 24)
+          description: Malformed binary payload (size mismatch, CRC32 failure, unknown version, count > 24)
           content:
             application/json:
               schema:

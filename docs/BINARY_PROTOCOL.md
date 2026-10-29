@@ -7,13 +7,14 @@ This document provides the byte-level contract implemented by the ESP32 acoustic
 ## 1. Overview & Transport
 - **Endpoint:** `POST /api/v1/measurements`
 - **Content-Type:** `application/octet-stream`
-- **Transfer Encoding:** Little-Endian for all integers and IEEE-754 binary32 floats
+- **Transfer Encoding:** Little-Endian for all integers, IEEE-754 binary32 floats, and CRC32 trailer
 - **Batch Cadence:** Up to 5 requests per second (200 ms minimum interval)
 - **Record Batching:** 1 to 24 records per payload ($1 \le N \le 24$)
-- **Total Payload Size:** Strictly $12 + (N \times 20)$ bytes:
-  - Minimum payload ($N = 1$): 32 bytes
-  - Standard payload ($N = 8$): 172 bytes
-  - Maximum payload ($N = 24$): 492 bytes
+- **Data Integrity:** 4-byte IEEE 802.3 CRC32 trailer appended after the final record
+- **Total Payload Size:** Strictly $12 + (N \times 20) + 4$ bytes:
+  - Minimum payload ($N = 1$): **36 bytes** ($12 + 20 + 4$)
+  - Standard payload ($N = 8$): **176 bytes** ($12 + 160 + 4$)
+  - Maximum payload ($N = 24$): **496 bytes** ($12 + 480 + 4$)
 
 ---
 
@@ -34,8 +35,8 @@ This document provides the byte-level contract implemented by the ESP32 acoustic
 | Offset (Bytes) | Size | Name | Type | Description |
 |:---:|:---:|:---|:---:|:---|
 | `0` | 1 | `format_version` | `uint8` | Fixed format identifier. Current version is `1`. Other versions must be rejected with HTTP 400. |
-| `1` | 1 | `measurement_count` | `uint8` | Number of records $N$ in the packet ($1 \le N \le 24$). Payload length must strictly equal $12 + 20N$. |
-| `2 - 3` | 2 | `clock_flags` | `uint16_le` | Synchronization status bitmask (see section 4). |
+| `1` | 1 | `measurement_count` | `uint8` | Number of records $N$ in the packet ($1 \le N \le 24$). Payload length must strictly equal $12 + 20N + 4$. |
+| `2 - 3` | 2 | `clock_flags` | `uint16_le` | Synchronization status bitmask (see section 5). |
 | `4 - 11` | 8 | `base_timestamp_ms` | `uint64_le` | Base timestamp in milliseconds. |
 
 ---
@@ -70,7 +71,34 @@ Each of the $N$ records in the batch is packed contiguously:
 
 ---
 
-## 4. Clock Synchronization Bitmask
+## 4. Trailer Structure: IEEE 802.3 CRC32 (4 Bytes)
+
+Appended immediately following record $N-1$ at offset $12 + (N \times 20)$:
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              IEEE 802.3 CRC32 Checksum (32-bit LE)             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+| Offset (Bytes) | Size | Name | Type | Description |
+|:---:|:---:|:---|:---:|:---|
+| $12 + (N \times 20)$ | 4 | `crc32_trailer` | `uint32_le` | IEEE 802.3 CRC32 calculated over all preceding $12 + 20N$ bytes. |
+
+### CRC32 Specification
+- **Standard:** IEEE 802.3 (Ethernet / GZIP / PNG)
+- **Polynomial:** `0x04C11DB7` (reflected representation: `0xEDB88320`)
+- **Initial Remainder:** `0xFFFFFFFF`
+- **Final XOR Value:** `0xFFFFFFFF`
+- **Test Vector:** The ASCII string `"123456789"` computes to `0xCBF43926`.
+- **ESP32 Implementation:** Computed via hardware ROM function `esp_rom_crc32_le`.
+- **Node.js Implementation:** Computed via native `node:zlib.crc32(buffer)`.
+
+---
+
+## 5. Clock Synchronization Bitmask
 
 The `clock_flags` 16-bit integer conveys the time quality of the batch:
 
@@ -82,14 +110,15 @@ The `clock_flags` 16-bit integer conveys the time quality of the batch:
 
 ---
 
-## 5. Backend Validation Rules
+## 6. Backend Validation Rules
 
 The backend decoder validates each incoming binary packet against the following criteria:
-1. `buffer.length >= 12` (must contain at least the full header).
+1. `buffer.length >= 16` (must contain at least 12-byte header + 4-byte CRC trailer).
 2. `format_version == 1`.
 3. `1 <= measurement_count <= 24`.
-4. `buffer.length == 12 + (measurement_count * 20)` (exact size match).
-5. For each record $i \in [0, N-1]$:
+4. `buffer.length == 12 + (measurement_count * 20) + 4` (exact size match).
+5. Trailer CRC matches calculated IEEE 802.3 CRC32 over the preceding $12 + (N \times 20)$ bytes.
+6. For each record $i \in [0, N-1]$:
    - `angle_deg` is finite and $-180.0 \le \phi \le 180.0$.
    - `delay_us` is finite.
    - `sound_level_db` is finite and $-200.0 \le \text{SPL} \le 200.0$.

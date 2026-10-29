@@ -52,8 +52,9 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
 // 2. Start HTTPS Server (Web Visualizer Dashboard and management clients)
 const certKeyPath = path.resolve(__dirname, '../certs/server.key');
 const certCrtPath = path.resolve(__dirname, '../certs/server.cert');
+const isHttpsDisabled = process.env.DISABLE_HTTPS === 'true' || process.env.ENABLE_HTTPS === 'false';
 
-if (fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)) {
+if (!isHttpsDisabled && fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)) {
   const httpsOptions = {
     key: fs.readFileSync(certKeyPath),
     cert: fs.readFileSync(certCrtPath),
@@ -66,6 +67,13 @@ if (fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)) {
       console.error(`\n[FATAL] HTTPS Port ${HTTPS_PORT} is already in use! Change PORT_HTTPS in .env.\n`);
       process.exit(1);
     }
+    if (err.code === 'EACCES') {
+      console.warn(`\n[WARN] Could not bind to HTTPS port ${HTTPS_PORT} (EACCES: permission denied).`);
+      console.warn(`[HINT] On Windows, port ${HTTPS_PORT} is commonly excluded by Hyper-V/WSL port ranges.`);
+      console.warn(`[HINT] Set PORT_HTTPS=8443 or DISABLE_HTTPS=true in .env to resolve this.`);
+      console.warn(`[INFO] Server is continuing in HTTP mode on port ${HTTP_PORT}.\n`);
+      return;
+    }
     throw err;
   });
 
@@ -73,6 +81,8 @@ if (fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)) {
     console.log(`[HTTPS] Secure Client Gateway listening on https://0.0.0.0:${HTTPS_PORT}`);
     console.log(`[HTTPS] Real-time SSE stream: https://localhost:${HTTPS_PORT}/api/v1/devices/1/stream`);
   });
+} else if (isHttpsDisabled) {
+  console.log('[HTTPS] HTTPS disabled via configuration (DISABLE_HTTPS=true); running in HTTP-only mode.');
 } else {
   console.log('[HTTPS] Notice: No TLS certificates found in certs/; running in HTTP-only mode.');
   console.log('[HTTPS] (Run `bash certs/generate_certs.sh` to generate local self-signed dev certificates)');

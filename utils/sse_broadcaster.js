@@ -45,6 +45,7 @@ class SSEBroadcaster {
       clockFlags: batch.header.clockFlags,
       clockSource: batch.header.clockSource,
       baseTimestampMs: Number(batch.header.baseTimestampMs),
+      crcVerified: Boolean(batch.header.crcVerified),
       records: batch.records,
     });
 

@@ -98,6 +98,38 @@ describe('Acoustic DOA REST API Endpoints', () => {
     expect(data.device_id).toBe(1);
   });
 
+  it('rejects binary batches with corrupt CRC32 trailer with HTTP 400', async () => {
+    const baseMs = BigInt(Date.now());
+    const records = [
+      {
+        offsetMs: 0,
+        angleDeg: 45.0,
+        delayUs: 80.0,
+        soundLevelDb: 65.0,
+        confidence: 0.9,
+      },
+    ];
+
+    const validBuffer = encodeBinaryBatch(baseMs, CLOCK_FLAG_UTC_SYNCHRONIZED, records);
+    const corruptBuffer = Buffer.from(validBuffer);
+    // Invalidate trailer CRC
+    corruptBuffer[corruptBuffer.length - 1] ^= 0xFF;
+
+    const res = await fetch(`${baseUrl}/api/v1/measurements`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': 'esp32-acoustic-doa-secret-key-1',
+        'Content-Type': 'application/octet-stream',
+      },
+      body: corruptBuffer,
+    });
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error.code).toBe('INVALID_BINARY_PAYLOAD');
+    expect(data.error.message).toContain('CRC32 checksum mismatch');
+  });
+
   it('returns newly inserted records on GET /measurements/latest', async () => {
     const res = await fetch(`${baseUrl}/api/v1/devices/1/measurements/latest?since_timestamp=0`);
     expect(res.status).toBe(200);
@@ -105,6 +137,37 @@ describe('Acoustic DOA REST API Endpoints', () => {
     expect(data.records.length).toBe(2);
     expect(data.records[0].angle_deg).toBeCloseTo(30.0, 1);
     expect(data.records[1].angle_deg).toBeCloseTo(35.0, 1);
+  });
+
+  it('accepts maximum capacity 24-record binary batches (496 bytes) with valid CRC', async () => {
+    const baseMs = BigInt(Date.now());
+    const records = [];
+    for (let i = 0; i < 24; i++) {
+      records.push({
+        offsetMs: i * 10,
+        angleDeg: -180.0 + i * 15.0,
+        delayUs: i * 3.0,
+        soundLevelDb: 60.0 + (i % 15),
+        confidence: 0.85,
+      });
+    }
+
+    const buffer = encodeBinaryBatch(baseMs, CLOCK_FLAG_UTC_SYNCHRONIZED, records);
+    expect(buffer.length).toBe(496); // 12 + 24*20 + 4
+
+    const res = await fetch(`${baseUrl}/api/v1/measurements`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': 'esp32-acoustic-doa-secret-key-1',
+        'Content-Type': 'application/octet-stream',
+      },
+      body: buffer,
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.status).toBe('success');
+    expect(data.accepted).toBe(24);
   });
 
   it('updates calibration configuration via PUT /config', async () => {
