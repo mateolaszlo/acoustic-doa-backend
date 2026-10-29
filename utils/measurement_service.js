@@ -88,6 +88,12 @@ export class MeasurementService {
     };
   }
 
+  getTotalCount(deviceId) {
+    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM measurements WHERE device_id = ?');
+    const row = stmt.get(deviceId);
+    return row ? row.count : 0;
+  }
+
   getStats(deviceId, timeframe = '1h', sinceMs = null) {
     let durationMs = 3600000;
     if (timeframe === '15m') durationMs = 15 * 60 * 1000;

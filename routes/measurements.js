@@ -111,6 +111,16 @@ export function createMeasurementRoutes(measurementService, deviceService) {
   });
 
   /**
+   * GET /api/v1/devices/:device_id/count
+   * Global all-time measurement count for a device
+   */
+  router.get('/devices/:device_id/count', (req, res) => {
+    const deviceId = parseInt(req.params.device_id, 10);
+    const total = measurementService.getTotalCount(deviceId);
+    return res.status(200).json({ device_id: deviceId, total });
+  });
+
+  /**
    * GET /api/v1/devices/:device_id/stats
    * Aggregated acoustic statistics (36 angular bins)
    */

@@ -215,6 +215,14 @@ describe('Acoustic DOA REST API Endpoints', () => {
     expect(stats.angularBins36.every((b) => b === 0)).toBe(true);
   });
 
+  it('retrieves global all-time measurement count for a device', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/devices/1/count`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.device_id).toBe(1);
+    expect(body.total).toBeGreaterThanOrEqual(2);
+  });
+
   it('broadcasts real-time events to SSE subscribers on binary batch upload', async () => {
     // 1. Open SSE stream
     const sseChunks = [];
