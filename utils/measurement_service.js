@@ -94,6 +94,12 @@ export class MeasurementService {
     return row ? row.count : 0;
   }
 
+  clearDeviceMeasurements(deviceId) {
+    const stmt = this.db.prepare('DELETE FROM measurements WHERE device_id = ?');
+    const result = stmt.run(deviceId);
+    return { success: true, deleted: result.changes };
+  }
+
   getStats(deviceId, timeframe = '1h', sinceMs = null) {
     let durationMs = 3600000;
     if (timeframe === '15m') durationMs = 15 * 60 * 1000;

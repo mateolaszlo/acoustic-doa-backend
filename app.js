@@ -79,7 +79,7 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
 
   // 7. Mount API v1 Routers
   const apiRouter = express.Router();
-  apiRouter.use(createDeviceRoutes(deviceService, calibrationService));
+  apiRouter.use(createDeviceRoutes(deviceService, calibrationService, measurementService, authMiddleware));
   apiRouter.use(createMeasurementRoutes(measurementService, deviceService));
   apiRouter.use(createConfigRoutes(calibrationService, authMiddleware));
   apiRouter.use(createSSERoutes());

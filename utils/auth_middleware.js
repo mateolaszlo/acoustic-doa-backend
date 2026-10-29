@@ -74,6 +74,7 @@ export function createAuthMiddleware(authService) {
     authenticateJWT,
     requireRole,
     optionalJWT,
+    authService,
   };
 }
 
