@@ -5,7 +5,8 @@ export function createDeviceRoutes(
   calibrationService,
   measurementService,
   authMiddleware,
-  clockFusionService = null
+  clockFusionService = null,
+  multiTargetTracker = null
 ) {
   const router = Router();
   const adminGuard = authMiddleware
@@ -100,6 +101,9 @@ export function createDeviceRoutes(
       if (clockFusionService) {
         clockFusionService.resetTracker(deviceId);
       }
+      if (multiTargetTracker) {
+        multiTargetTracker.resetDevice(deviceId);
+      }
       return res.status(200).json(result);
     } catch (err) {
       const status = err.message.includes('not found') ? 404 : 400;
@@ -132,6 +136,9 @@ export function createDeviceRoutes(
     const result = measurementService.clearDeviceMeasurements(deviceId);
     if (clockFusionService) {
       clockFusionService.resetTracker(deviceId);
+    }
+    if (multiTargetTracker) {
+      multiTargetTracker.resetDevice(deviceId);
     }
     return res.status(200).json({
       success: true,

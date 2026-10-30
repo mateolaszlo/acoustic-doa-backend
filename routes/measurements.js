@@ -2,7 +2,12 @@ import { Router } from 'express';
 import { parseBinaryBatch } from '../utils/binary_parser.js';
 import { sseBroadcaster } from '../utils/sse_broadcaster.js';
 
-export function createMeasurementRoutes(measurementService, deviceService, clockFusionService = null) {
+export function createMeasurementRoutes(
+  measurementService,
+  deviceService,
+  clockFusionService = null,
+  multiTargetTracker = null
+) {
   const router = Router();
 
   /**
@@ -48,7 +53,7 @@ export function createMeasurementRoutes(measurementService, deviceService, clock
     const batch = parseResult.batch;
     const deviceId = auth.id;
 
-    // Apply smooth timeframe normalization & clock fusion if service is active
+    // 1. Apply smooth timeframe normalization & clock fusion if service is active
     let effectiveBatch = batch;
     if (clockFusionService) {
       const fused = clockFusionService.processBatch(deviceId, batch, Date.now());
@@ -61,13 +66,23 @@ export function createMeasurementRoutes(measurementService, deviceService, clock
       };
     }
 
-    // 1. Persist batch to database
+    // 2. Apply temporal multi-target tracking (MTT) across unified timeframes
+    if (multiTargetTracker) {
+      const tracked = multiTargetTracker.processBatch(deviceId, effectiveBatch);
+      effectiveBatch = {
+        header: effectiveBatch.header,
+        records: tracked.records,
+        activeTracks: tracked.activeTracks,
+      };
+    }
+
+    // 3. Persist batch to database
     measurementService.insertBatch(deviceId, effectiveBatch);
 
-    // 2. Update device heartbeat
+    // 4. Update device heartbeat
     deviceService.updateDeviceHeartbeat(deviceId, effectiveBatch.header.clockSource);
 
-    // 3. Broadcast to all active SSE subscribers
+    // 5. Broadcast to all active SSE subscribers
     sseBroadcaster.broadcastBatch(deviceId, effectiveBatch);
 
     return res.status(200).json({
@@ -76,6 +91,23 @@ export function createMeasurementRoutes(measurementService, deviceService, clock
       device_id: deviceId,
       clock_source: effectiveBatch.header.clockSource,
       received_at: new Date().toISOString(),
+      active_tracks: effectiveBatch.activeTracks ? effectiveBatch.activeTracks.length : 0,
+    });
+  });
+
+  /**
+   * GET /api/v1/devices/:device_id/tracks
+   * Retrieve active and coasting tracked sound sources
+   */
+  router.get('/devices/:device_id/tracks', (req, res) => {
+    const deviceId = parseInt(req.params.device_id, 10);
+    const tracks = multiTargetTracker
+      ? multiTargetTracker.getManager(deviceId).getActiveTracksSnapshot()
+      : [];
+    return res.status(200).json({
+      device_id: deviceId,
+      track_count: tracks.length,
+      tracks,
     });
   });
 

@@ -7,9 +7,9 @@ export class MeasurementService {
     const insertStmt = this.db.prepare(`
       INSERT INTO measurements (
         device_id, timestamp_ms, raw_timestamp_ms, clock_flags,
-        sync_quality, session_id, angle_deg, delay_us,
-        sound_level_db, confidence, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sync_quality, session_id, track_id, smoothed_angle_deg,
+        angle_deg, delay_us, sound_level_db, confidence, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const nowIso = new Date().toISOString();
@@ -23,6 +23,8 @@ export class MeasurementService {
           batch.header.clockFlags,
           r.syncQuality !== undefined ? r.syncQuality : 0,
           r.sessionId !== undefined ? r.sessionId : null,
+          r.trackId !== undefined ? r.trackId : null,
+          r.smoothedAngleDeg !== undefined ? r.smoothedAngleDeg : r.angleDeg,
           r.angleDeg,
           r.delayUs,
           r.soundLevelDb,
@@ -39,7 +41,7 @@ export class MeasurementService {
   getLatestMeasurements(deviceId, sinceTimestampMs = 0, limit = 50) {
     const stmt = this.db.prepare(`
       SELECT id, timestamp_ms, raw_timestamp_ms, clock_flags, sync_quality, session_id,
-             angle_deg, delay_us, sound_level_db, confidence
+             track_id, smoothed_angle_deg, angle_deg, delay_us, sound_level_db, confidence
       FROM measurements
       WHERE device_id = ? AND timestamp_ms > ?
       ORDER BY timestamp_ms DESC, id DESC
@@ -80,7 +82,7 @@ export class MeasurementService {
 
     const dataStmt = this.db.prepare(`
       SELECT id, timestamp_ms, raw_timestamp_ms, clock_flags, sync_quality, session_id,
-             angle_deg, delay_us, sound_level_db, confidence
+             track_id, smoothed_angle_deg, angle_deg, delay_us, sound_level_db, confidence
       FROM measurements
       WHERE ${whereClause}
       ORDER BY timestamp_ms DESC, id DESC

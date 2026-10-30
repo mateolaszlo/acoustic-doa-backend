@@ -42,6 +42,8 @@ describe('ClockFusionService & Timeframe Normalization', () => {
         clock_flags INTEGER NOT NULL,
         sync_quality INTEGER NOT NULL DEFAULT 0,
         session_id INTEGER,
+        track_id INTEGER,
+        smoothed_angle_deg REAL,
         angle_deg REAL NOT NULL,
         delay_us REAL NOT NULL,
         sound_level_db REAL NOT NULL,

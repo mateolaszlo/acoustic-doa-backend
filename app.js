@@ -12,6 +12,7 @@ import { DeviceService } from './utils/device_service.js';
 import { CalibrationService } from './utils/calibration_service.js';
 import { MeasurementService } from './utils/measurement_service.js';
 import { ClockFusionService } from './utils/clock_fusion_service.js';
+import { MultiTargetTracker } from './utils/multi_target_tracker.js';
 import { AuthService } from './utils/auth_service.js';
 import { createAuthMiddleware } from './utils/auth_middleware.js';
 
@@ -35,6 +36,7 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   const calibrationService = new CalibrationService(db);
   const measurementService = new MeasurementService(db);
   const clockFusionService = new ClockFusionService(db);
+  const multiTargetTracker = new MultiTargetTracker();
   const authService = new AuthService(db);
   const authMiddleware = createAuthMiddleware(authService);
 
@@ -81,8 +83,8 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
 
   // 7. Mount API v1 Routers
   const apiRouter = express.Router();
-  apiRouter.use(createDeviceRoutes(deviceService, calibrationService, measurementService, authMiddleware, clockFusionService));
-  apiRouter.use(createMeasurementRoutes(measurementService, deviceService, clockFusionService));
+  apiRouter.use(createDeviceRoutes(deviceService, calibrationService, measurementService, authMiddleware, clockFusionService, multiTargetTracker));
+  apiRouter.use(createMeasurementRoutes(measurementService, deviceService, clockFusionService, multiTargetTracker));
   apiRouter.use(createConfigRoutes(calibrationService, authMiddleware));
   apiRouter.use(createSSERoutes());
   apiRouter.use('/auth', createAuthRoutes(authService, authMiddleware));

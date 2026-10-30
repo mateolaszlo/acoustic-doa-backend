@@ -535,6 +535,36 @@ paths:
                   count:
                     type: integer
 
+  /devices/{device_id}/tracks:
+    get:
+      summary: Get Active Acoustic Tracks
+      description: Retrieve real-time snapshot of active and coasting multi-target acoustic tracks for the specified device.
+      operationId: getDeviceTracks
+      tags:
+        - Multi-Target Tracking
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Active acoustic tracks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id:
+                    type: integer
+                  track_count:
+                    type: integer
+                  tracks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AcousticTrack'
+
   /auth/login:
     post:
       summary: User Login
@@ -769,6 +799,83 @@ components:
           maximum: 1.0
           description: Weighted least squares correlation confidence
           example: 0.88
+        track_id:
+          type: integer
+          nullable: true
+          description: Persistent acoustic track identifier assigned by MTT
+          example: 1
+        smoothed_angle_deg:
+          type: number
+          format: float
+          nullable: true
+          description: Circular Kalman filter smoothed azimuth in degrees [-180, +180]
+          example: 42.1
+
+    AcousticTrack:
+      type: object
+      required:
+        - track_id
+        - track_slot
+        - state
+        - angle_deg
+        - raw_angle_deg
+        - velocity_deg_per_sec
+        - sound_level_db
+        - confidence
+        - hits
+        - last_updated_ms
+        - age_ms
+      properties:
+        track_id:
+          type: integer
+          description: Monotonically increasing track identifier
+          example: 1
+        track_slot:
+          type: integer
+          description: Persistent visual display slot (0=Primary Emerald, 1=Secondary Indigo, 2=Tertiary Sky-Blue)
+          example: 0
+        state:
+          type: string
+          enum: [TENTATIVE, ACTIVE, COASTING, DELETED]
+          description: Current lifecycle state of the track
+          example: ACTIVE
+        angle_deg:
+          type: number
+          format: float
+          description: Circular Kalman smoothed azimuth in degrees [-180, +180]
+          example: 42.3
+        raw_angle_deg:
+          type: number
+          format: float
+          description: Latest raw DOA detection azimuth in degrees
+          example: 42.5
+        velocity_deg_per_sec:
+          type: number
+          format: float
+          description: Estimated angular velocity in degrees per second
+          example: -0.4
+        sound_level_db:
+          type: number
+          format: float
+          description: Exponentially smoothed sound pressure level in dB SPL
+          example: 68.2
+        confidence:
+          type: number
+          format: float
+          description: Exponentially smoothed tracking confidence
+          example: 0.88
+        hits:
+          type: integer
+          description: Number of consecutive frame associations
+          example: 12
+        last_updated_ms:
+          type: integer
+          description: Unix millisecond timestamp of latest measurement association
+          example: 1791830000500
+        age_ms:
+          type: integer
+          description: Total track duration in milliseconds since birth
+          example: 1250
 
     MeasurementUploadResponse:
       type: object

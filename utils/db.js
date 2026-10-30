@@ -55,11 +55,19 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
       if (!existingCols.includes('session_id')) {
         db.exec('ALTER TABLE measurements ADD COLUMN session_id INTEGER');
       }
+      if (!existingCols.includes('track_id')) {
+        db.exec('ALTER TABLE measurements ADD COLUMN track_id INTEGER');
+      }
+      if (!existingCols.includes('smoothed_angle_deg')) {
+        db.exec('ALTER TABLE measurements ADD COLUMN smoothed_angle_deg REAL');
+        db.exec('UPDATE measurements SET smoothed_angle_deg = angle_deg WHERE smoothed_angle_deg IS NULL');
+      }
       db.exec('DROP INDEX IF EXISTS idx_measurements_device_time');
       db.exec('CREATE INDEX IF NOT EXISTS idx_measurements_device_time ON measurements (device_id, timestamp_ms DESC, id DESC)');
       db.exec('DROP INDEX IF EXISTS idx_measurements_time');
       db.exec('CREATE INDEX IF NOT EXISTS idx_measurements_time ON measurements (timestamp_ms DESC, id DESC)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_measurements_session ON measurements (device_id, session_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_measurements_track ON measurements (device_id, track_id)');
     }
   } catch (err) {
     console.warn('[DB] Measurements schema migration notice:', err.message);

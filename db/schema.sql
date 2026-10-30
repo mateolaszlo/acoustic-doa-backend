@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS measurements (
   clock_flags INTEGER NOT NULL,
   sync_quality INTEGER NOT NULL DEFAULT 0,
   session_id INTEGER,
+  track_id INTEGER,
+  smoothed_angle_deg REAL,
   angle_deg REAL NOT NULL,
   delay_us REAL NOT NULL,
   sound_level_db REAL NOT NULL,
@@ -50,4 +52,5 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_measurements_device_time ON measurements (device_id, timestamp_ms DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_measurements_time ON measurements (timestamp_ms DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_measurements_session ON measurements (device_id, session_id);
+CREATE INDEX IF NOT EXISTS idx_measurements_track ON measurements (device_id, track_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);

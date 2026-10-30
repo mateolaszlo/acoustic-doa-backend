@@ -47,6 +47,7 @@ class SSEBroadcaster {
       baseTimestampMs: Number(batch.header.baseTimestampMs),
       crcVerified: Boolean(batch.header.crcVerified),
       records: batch.records,
+      activeTracks: batch.activeTracks || [],
     });
 
     const sseMessage = `event: measurement_batch\ndata: ${payload}\n\n`;
