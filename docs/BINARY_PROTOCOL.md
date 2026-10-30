@@ -125,3 +125,38 @@ The backend decoder validates each incoming binary packet against the following 
    - `confidence` is finite and $0.0 \le c \le 1.0$.
 
 If any validation check fails, the backend immediately responds with **HTTP 400 Bad Request** and a descriptive JSON error.
+
+---
+
+## 7. Server-Side Multi-Clock Normalization & Smooth Timeframe Fusion Engine
+
+To ensure that packets from disparate or transitioning timing regimes are merged into a strictly ordered, monotonic chronological timeline in SQLite without teleportation or time-reversal artifacts, the backend processes all batches through `ClockFusionService`:
+
+### 7.1 Timing Regimes & Bitmask Precedence
+In accordance with ESP32 firmware bitmask definitions:
+1. `CLOCK_FLAG_MONOTONIC_UPTIME` (`0x0004`): Evaluated first. Indicates unsynchronized hardware crystal uptime ($t_{\text{mono}}$ in milliseconds since boot).
+2. `CLOCK_FLAG_SERVER_SYNCHRONIZED` (`0x0002` / `0x0003`): Evaluated second. Indicates synchronization derived from the API server's calibration handshake (`0x0001 | 0x0002 = 0x0003`).
+3. `CLOCK_FLAG_UTC_SYNCHRONIZED` (`0x0001`): Evaluated third. Pure hardware SNTP discipline from network time servers.
+
+### 7.2 Causal Lower-Envelope Boot Anchoring
+For monotonic packets (`0x0004`), server reception time $t_{\text{recv}}$ is anchored against the **batch end** ($t_{\text{batch\_end\_mono}} = t_{\text{base}} + \max_i(\text{offset}_i)$):
+$$\hat{T}_{\text{boot\_sample}} = t_{\text{recv}} - t_{\text{batch\_end\_mono}} - \delta_{\text{min\_transit}} \quad (\delta_{\text{min\_transit}} = 2\text{ ms})$$
+
+- **Retroactive Reconciliation:** If a subsequent packet arrives with lower Wi-Fi queueing delay such that $\hat{T}_{\text{boot\_sample}} < \hat{T}_{\text{boot}} - 2\text{ ms}$, earlier rows in SQLite for that boot session are atomically shifted backward to maintain exact hardware delta spacing.
+- **Silence Gap Immunity:** When transitioning from Monotonic to UTC, the boot anchor is bounded causally ($\hat{T}_{\text{boot}} \le T_{\text{utc\_start}} - t_{\text{last\_mono\_end}} - 1\text{ ms}$) without bridging across quiet periods, preventing events from teleporting across 10-minute quiet gaps.
+
+### 7.3 Dynamically Scaled Cubic Hermite Slew
+When bridging clock source steps (e.g. `SERVER_UTC` $\rightarrow$ `SNTP_UTC` with error $E = T_{\text{new\_raw}} - T_{\text{expected}}$):
+- If $E < 0$, the slew window is dynamically scaled:
+  $$\tau = \max(2000\text{ ms}, \; 3.0 \cdot |E|)$$
+- This mathematically guarantees $\frac{dT_{\text{unified}}}{dt} \ge +0.5\text{ ms/ms} > 0$ across the entire slew, preventing instantaneous time reversals.
+
+### 7.4 Multi-Source (CLEAN) Frame Preservation
+Clamping is evaluated at the batch base header level rather than per-record. Simultaneous Primary, Secondary, and Tertiary beam detections from the same 1024-sample FFT frame retain identical unified timestamps and are tie-broken in SQLite by `(timestamp_ms DESC, id DESC)`.
+
+### 7.5 Synchronization Quality Levels
+Every stored measurement record is tagged with an integer `sync_quality` flag:
+- `0` (`SYNC_QUALITY_MONOTONIC_EST`): Anchored from server receive time during Wi-Fi boot phase.
+- `1` (`SYNC_QUALITY_SERVER_SYNCED`): Synchronized via `/api/v1/devices/:id/calibration` HTTP response.
+- `2` (`SYNC_QUALITY_SNTP_LOCKED`): Disciplined via hardware SNTP client.
+- `3` (`SYNC_QUALITY_HARMONIZED`): Retroactively aligned following subsequent tighter causal bounds or UTC lock.

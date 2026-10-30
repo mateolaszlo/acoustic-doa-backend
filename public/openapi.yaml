@@ -382,15 +382,278 @@ paths:
       operationId: listDevices
       tags:
         - Device Management
+      security:
+        - {}
+        - BearerAuth: []
       responses:
         '200':
-          description: List of registered devices with connectivity status
+          description: List of registered devices with connectivity status (includes api_key if Admin)
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/DeviceSummary'
+    post:
+      summary: Provision New Hardware Device
+      operationId: createDevice
+      tags:
+        - Device Management
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  example: "ESP32 DOA Array #2"
+                api_key:
+                  type: string
+                  example: "esp32-acoustic-doa-custom-key"
+      responses:
+        '201':
+          description: Device provisioned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceSummary'
+        '403':
+          description: Forbidden (Admin role required)
+
+  /devices/{device_id}:
+    put:
+      summary: Update Device Details
+      operationId: updateDevice
+      tags:
+        - Device Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Device updated
+        '403':
+          description: Forbidden
+        '404':
+          description: Device not found
+    delete:
+      summary: Decommission and Delete Device
+      operationId: deleteDevice
+      tags:
+        - Device Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Device decommissioned successfully
+        '403':
+          description: Forbidden
+        '404':
+          description: Device not found
+
+  /devices/{device_id}/api-key/rotate:
+    post:
+      summary: Rotate Device API Key
+      operationId: rotateDeviceApiKey
+      tags:
+        - Device Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: New API key generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  device_id:
+                    type: integer
+                  api_key:
+                    type: string
+                  message:
+                    type: string
+        '403':
+          description: Forbidden
+
+  /devices/{device_id}/count:
+    get:
+      summary: Get All-Time Measurement Count
+      operationId: getDeviceCount
+      tags:
+        - Device Ingestion
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Total stored measurement count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id:
+                    type: integer
+                  count:
+                    type: integer
+
+  /auth/login:
+    post:
+      summary: User Login
+      operationId: loginUser
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Successful authentication with JWT
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Invalid credentials
+
+  /auth/register:
+    post:
+      summary: Register User
+      operationId: registerUser
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - email
+                - password
+              properties:
+                username:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '201':
+          description: User registered successfully
+
+  /auth/me:
+    get:
+      summary: Active Profile Details
+      operationId: getActiveProfile
+      tags:
+        - Authentication
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Active user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+
+  /users:
+    get:
+      summary: List Registered Users (Admin only)
+      operationId: listUsers
+      tags:
+        - User Management
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of platform users
+
+  /users/{id}/role:
+    put:
+      summary: Update User Role (Admin only)
+      operationId: updateUserRole
+      tags:
+        - User Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - role
+              properties:
+                role:
+                  type: string
+                  enum: ["admin", "viewer"]
+      responses:
+        '200':
+          description: Role updated successfully
 
 components:
   schemas:
@@ -464,8 +727,26 @@ components:
           type: integer
         timestamp_ms:
           type: integer
-          description: Millisecond Unix timestamp (base_timestamp_ms + offset_ms)
+          description: Millisecond Unix timestamp (base_timestamp_ms + offset_ms, unified by clock fusion)
           example: 1791830000125
+        raw_timestamp_ms:
+          type: integer
+          nullable: true
+          description: Raw hardware timestamp before clock normalization
+          example: 1791830000125
+        clock_flags:
+          type: integer
+          description: Bitmask representing clock synchronization flags
+          example: 1
+        sync_quality:
+          type: integer
+          description: Quality indicator (0=monotonic estimate, 1=server synced, 2=SNTP locked, 3=harmonized)
+          example: 2
+        session_id:
+          type: integer
+          nullable: true
+          description: Hardware boot session identifier
+          example: 1791830000000
         angle_deg:
           type: number
           format: float
@@ -622,6 +903,10 @@ components:
           type: integer
         name:
           type: string
+        api_key:
+          type: string
+          nullable: true
+          description: Provisioned hardware API key (returned only for Admin)
         status:
           type: string
           enum: ["online", "offline"]
@@ -633,6 +918,23 @@ components:
           enum: ["SNTP_UTC", "SERVER_UTC", "MONOTONIC_UPTIME", "UNKNOWN"]
         sample_rate:
           type: integer
+        total_events:
+          type: integer
+          nullable: true
+          description: Total stored measurement count for this node
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: ["admin", "viewer"]
 
     ErrorResponse:
       type: object

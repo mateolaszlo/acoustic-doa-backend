@@ -123,7 +123,12 @@ Standard status codes:
     "latest_timestamp_ms": 1791830000125,
     "records": [
       {
+        "id": 42,
         "timestamp_ms": 1791830000125,
+        "raw_timestamp_ms": 1791830000125,
+        "clock_flags": 1,
+        "sync_quality": 2,
+        "session_id": 1791830000000,
         "angle_deg": 42.5,
         "delay_us": 82.1,
         "sound_level_db": 68.4,
@@ -200,3 +205,108 @@ Standard status codes:
     ]
   }
   ```
+
+---
+
+## 5. Hardware Node Management & Provisioning
+
+All node modification and provisioning endpoints require authentication with the `admin` role (`Authorization: Bearer <token>`).
+
+### 5.1 List Registered Nodes
+- **Method & Route:** `GET /devices`
+- **Headers:** Optional `Authorization: Bearer <token>`
+- **Description:** Unauthenticated clients receive sanitized node summaries without API keys; authenticated administrators receive full details including API keys and total stored event counts.
+- **Admin Response `200 OK`:**
+  ```json
+  [
+    {
+      "id": 1,
+      "name": "ESP32 DOA Array #1",
+      "api_key": "esp32-acoustic-doa-secret-key-1",
+      "status": "online",
+      "created_at": "2026-10-26T17:00:00.000Z",
+      "last_seen_at": "2026-10-30T08:00:00.000Z",
+      "clock_status": "SNTP_UTC",
+      "sample_rate": 44100,
+      "firmware_version": "1.0.0",
+      "total_events": 14205
+    }
+  ]
+  ```
+
+### 5.2 Provision New Hardware Node
+- **Method & Route:** `POST /devices`
+- **Headers:** `Authorization: Bearer <token>` (Admin required)
+- **Request Body:**
+  ```json
+  {
+    "name": "ESP32 DOA Array #2 (North Wall)",
+    "api_key": "custom-key-optional"
+  }
+  ```
+- **Description:** Provisions a new device record, initializes its default acoustic calibration profile, and auto-generates a secure 32-character API key if not specified.
+
+### 5.3 Rotate Node API Key
+- **Method & Route:** `POST /devices/{device_id}/api-key/rotate`
+- **Headers:** `Authorization: Bearer <token>` (Admin required)
+- **Response `200 OK`:**
+  ```json
+  {
+    "success": true,
+    "device_id": 2,
+    "api_key": "esp32-acoustic-doa-c8f94e1a7b2d5f0e1a3c6b8d",
+    "message": "API key rotated successfully. Update this key in the ESP32 firmware."
+  }
+  ```
+
+### 5.4 Decommission Hardware Node
+- **Method & Route:** `DELETE /devices/{device_id}`
+- **Headers:** `Authorization: Bearer <token>` (Admin required)
+- **Description:** Deletes the device record, cascades deletion to its calibration settings and measurements, and resets its in-memory clock tracker.
+
+### 5.5 Safe Historical Data Purge
+- **Method & Route:** `DELETE /devices/{device_id}/measurements`
+- **Headers:** `Authorization: Bearer <token>` (Admin required)
+- **Description:** Safely purges historical measurements from SQLite for the specified node to reclaim disk storage without dropping live SSE subscribers or resetting node calibration.
+- **Response `200 OK`:**
+  ```json
+  {
+    "success": true,
+    "device_id": 1,
+    "deleted_records": 14205,
+    "message": "Successfully purged 14205 measurements for device 1"
+  }
+  ```
+
+### 5.6 Get All-Time Measurement Count
+- **Method & Route:** `GET /devices/{device_id}/count`
+- **Response `200 OK`:**
+  ```json
+  {
+    "device_id": 1,
+    "count": 14205
+  }
+  ```
+
+---
+
+## 6. Authentication & User Management
+
+### 6.1 Administrator & Viewer Login
+- **Method & Route:** `POST /auth/login`
+- **Request Body:** `{ "username": "admin", "password": "..." }`
+- **Response `200 OK`:** Returns signed JWT (`token`) and user object (`{ id, username, email, role }`).
+
+### 6.2 User Registration
+- **Method & Route:** `POST /auth/register`
+- **Request Body:** `{ "username": "operator1", "email": "op@fe.uni-lj.si", "password": "..." }`
+- **Description:** Registers a new account with default `viewer` role.
+
+### 6.3 Authenticated Profile
+- **Method & Route:** `GET /auth/me`
+- **Headers:** `Authorization: Bearer <token>`
+
+### 6.4 User Role Management (Admin only)
+- **Method & Route:** `GET /users` — List all registered platform users.
+- **Method & Route:** `PUT /users/{id}/role` — Promote or demote user role (`admin` or `viewer`).
+

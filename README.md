@@ -20,6 +20,10 @@ High-performance REST API and Server-Sent Events (SSE) streaming server for the 
 - **Server-Sent Events (SSE) Live Stream:** Sub-20ms real-time event push over pure HTTP (`GET /api/v1/devices/:id/stream`) for the 60fps web visualizer radar canvas.
 - **SQLite Persistence with WAL Mode:** High concurrency file-based storage using `better-sqlite3`, capable of thousands of writes per second with zero external database daemons.
 - **OpenAPI 3.1 & Interactive Swagger UI:** Complete machine-readable contract at `public/openapi.yaml` and interactive browser documentation served at `/api/docs`.
+- **Multi-Clock Normalization & Smooth Timeframe Fusion Engine:** Synchronizes mixed timing packets (`MONOTONIC_UPTIME` `0x0004`, `SERVER_UTC` `0x0002`/`0x0003`, and `SNTP_UTC` `0x0001`) into a strictly monotonic timeline using causal lower-envelope boot anchoring, dynamic Cubic Hermite slewing ($\frac{dT}{dt} \ge +0.5\text{ ms/ms}$), simultaneous CLEAN frame preservation, and retroactive SQLite session tightening.
+- **Hardware Node & API Key Management:** REST endpoints for administrators to provision new arrays, rotate 32-character API keys, rename nodes, and decommission hardware without modifying files.
+- **Safe Historical Data Purge:** Dedicated endpoint to purge stored measurement history per device without dropping active SSE subscribers.
+- **Role-Based Access Control (RBAC):** JWT authentication distinguishing `admin` (calibration, node provisioning, user management, measurement purge) and `viewer` (read-only monitoring).
 - **Remote Device Calibration Engine:** Allows web dashboard users to update array distance, zero-angle offsets, SNR margins, and SPL thresholds, which are automatically synced to the ESP32 on its next 60s poll.
 
 ---
@@ -76,32 +80,40 @@ acoustic-doa-backend/
 │   └── www                       # Executable server bootstrap (HTTP 3000 + HTTPS 3443)
 ├── routes/
 │   ├── index.js                  # Landing page & /health check
-│   ├── devices.js                # ESP32 calibration poll & heartbeat
+│   ├── devices.js                # ESP32 calibration poll, heartbeat & admin node management
 │   ├── measurements.js           # Binary batch ingestion & historical queries
-│   ├── config.js                 # Web dashboard remote array calibration
-│   └── stream.js                 # Server-Sent Events (SSE) live telemetry stream
+│   ├── config.js                 # Web dashboard remote array calibration (Admin guarded)
+│   ├── stream.js                 # Server-Sent Events (SSE) live telemetry stream
+│   ├── auth.js                   # JWT authentication (login, register, me)
+│   └── users.js                  # User role management (Admin only)
 ├── utils/
 │   ├── db.js                     # SQLite initialization, WAL pragma & migrations
+│   ├── clock_fusion_service.js   # Multi-clock fusion, causal anchoring & Hermite slew
 │   ├── binary_parser.js          # 12B header + 20B record Little-Endian buffer decoder
 │   ├── validator.js              # Acoustic parameter bounds validator
 │   ├── sse_broadcaster.js        # SSE connection pool & 15s heartbeats
 │   ├── device_service.js         # Device authentication & state queries
 │   ├── calibration_service.js    # Calibration profiles & zero-angle trim
-│   └── measurement_service.js    # Batch inserts & 36-bin angular statistics
+│   ├── measurement_service.js    # Batch inserts & 36-bin angular statistics
+│   ├── auth_service.js           # Password hashing & JWT management
+│   └── auth_middleware.js        # Express middleware for JWT & RBAC guards
 ├── views/
 │   ├── index.ejs                 # HTML landing page with active device status
 │   └── error.ejs                 # Standard error view template
 ├── public/
 │   └── openapi.yaml              # OpenAPI 3.1 specification & Swagger assets
 ├── db/
-│   └── schema.sql                # SQL tables for devices, calibration, measurements
+│   └── schema.sql                # SQL tables for devices, calibration, measurements, users
 ├── certs/
 │   └── generate_certs.sh         # Local TLS certificate generator
 ├── scripts/
 │   └── simulate_esp32.js         # Synthetic ESP32 DOA array batch generator
 ├── test/
 │   ├── api.test.js               # REST & SSE integration tests (Vitest)
-│   └── binary_parser.test.js     # Bit-level protocol unit tests (Vitest)
+│   ├── binary_parser.test.js     # Bit-level protocol unit tests (Vitest)
+│   ├── clock_fusion.test.js      # Multi-clock fusion & smooth timeframe tests (Vitest)
+│   ├── devices_admin.test.js     # Node provisioning & API key management tests (Vitest)
+│   └── auth_and_rbac.test.js     # RBAC & authentication unit tests (Vitest)
 ├── app.js                        # Express application & middleware setup
 ├── app.db                        # SQLite database file
 └── package.json                  # Pure ES Module dependencies
