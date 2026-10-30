@@ -1,6 +1,12 @@
 import { Router } from 'express';
 
-export function createDeviceRoutes(deviceService, calibrationService, measurementService, authMiddleware) {
+export function createDeviceRoutes(
+  deviceService,
+  calibrationService,
+  measurementService,
+  authMiddleware,
+  clockFusionService = null
+) {
   const router = Router();
   const adminGuard = authMiddleware
     ? [authMiddleware.authenticateJWT, authMiddleware.requireRole('admin')]
@@ -91,6 +97,9 @@ export function createDeviceRoutes(deviceService, calibrationService, measuremen
     const deviceId = parseInt(req.params.device_id, 10);
     try {
       const result = deviceService.deleteDevice(deviceId);
+      if (clockFusionService) {
+        clockFusionService.resetTracker(deviceId);
+      }
       return res.status(200).json(result);
     } catch (err) {
       const status = err.message.includes('not found') ? 404 : 400;
@@ -121,6 +130,9 @@ export function createDeviceRoutes(deviceService, calibrationService, measuremen
     }
 
     const result = measurementService.clearDeviceMeasurements(deviceId);
+    if (clockFusionService) {
+      clockFusionService.resetTracker(deviceId);
+    }
     return res.status(200).json({
       success: true,
       device_id: deviceId,

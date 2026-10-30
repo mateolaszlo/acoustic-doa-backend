@@ -36,6 +36,35 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
     console.warn('[DB] Warning: db/schema.sql not found; relying on existing database schema.');
   }
 
+  // Idempotent column and index migration for timestamp fusion engine
+  try {
+    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='measurements'").get();
+    if (tableCheck) {
+      const existingCols = db
+        .prepare("PRAGMA table_info('measurements')")
+        .all()
+        .map((c) => c.name);
+
+      if (!existingCols.includes('raw_timestamp_ms')) {
+        db.exec('ALTER TABLE measurements ADD COLUMN raw_timestamp_ms INTEGER');
+        db.exec('UPDATE measurements SET raw_timestamp_ms = timestamp_ms WHERE raw_timestamp_ms IS NULL');
+      }
+      if (!existingCols.includes('sync_quality')) {
+        db.exec('ALTER TABLE measurements ADD COLUMN sync_quality INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!existingCols.includes('session_id')) {
+        db.exec('ALTER TABLE measurements ADD COLUMN session_id INTEGER');
+      }
+      db.exec('DROP INDEX IF EXISTS idx_measurements_device_time');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_measurements_device_time ON measurements (device_id, timestamp_ms DESC, id DESC)');
+      db.exec('DROP INDEX IF EXISTS idx_measurements_time');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_measurements_time ON measurements (timestamp_ms DESC, id DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_measurements_session ON measurements (device_id, session_id)');
+    }
+  } catch (err) {
+    console.warn('[DB] Measurements schema migration notice:', err.message);
+  }
+
   // 1. Seed sample device 1 if devices table is empty
   const countStmt = db.prepare('SELECT COUNT(*) as count FROM devices WHERE id = 1');
   const row = countStmt.get();

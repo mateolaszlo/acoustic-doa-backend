@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS measurements (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
   timestamp_ms INTEGER NOT NULL,
+  raw_timestamp_ms INTEGER,
   clock_flags INTEGER NOT NULL,
+  sync_quality INTEGER NOT NULL DEFAULT 0,
+  session_id INTEGER,
   angle_deg REAL NOT NULL,
   delay_us REAL NOT NULL,
   sound_level_db REAL NOT NULL,
@@ -44,6 +47,7 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_measurements_device_time ON measurements (device_id, timestamp_ms DESC);
-CREATE INDEX IF NOT EXISTS idx_measurements_time ON measurements (timestamp_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_measurements_device_time ON measurements (device_id, timestamp_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_measurements_time ON measurements (timestamp_ms DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_measurements_session ON measurements (device_id, session_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);

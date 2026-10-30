@@ -87,12 +87,12 @@ export function parseBinaryBatch(buffer) {
   }
 
   let clockSource = 'UNKNOWN';
-  if ((clockFlags & CLOCK_FLAG_UTC_SYNCHRONIZED) !== 0) {
-    clockSource = 'SNTP_UTC';
-  } else if ((clockFlags & (CLOCK_FLAG_SERVER_SYNCHRONIZED | CLOCK_FLAG_SERVER_MIDPOINT)) !== 0) {
-    clockSource = 'SERVER_UTC';
-  } else if ((clockFlags & CLOCK_FLAG_MONOTONIC_UPTIME) !== 0) {
+  if ((clockFlags & CLOCK_FLAG_MONOTONIC_UPTIME) !== 0) {
     clockSource = 'MONOTONIC_UPTIME';
+  } else if ((clockFlags & CLOCK_FLAG_SERVER_SYNCHRONIZED) !== 0) {
+    clockSource = 'SERVER_UTC';
+  } else if ((clockFlags & CLOCK_FLAG_UTC_SYNCHRONIZED) !== 0) {
+    clockSource = 'SNTP_UTC';
   }
 
   const header = {

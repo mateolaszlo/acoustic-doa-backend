@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { parseBinaryBatch } from '../utils/binary_parser.js';
 import { sseBroadcaster } from '../utils/sse_broadcaster.js';
 
-export function createMeasurementRoutes(measurementService, deviceService) {
+export function createMeasurementRoutes(measurementService, deviceService, clockFusionService = null) {
   const router = Router();
 
   /**
@@ -48,20 +48,33 @@ export function createMeasurementRoutes(measurementService, deviceService) {
     const batch = parseResult.batch;
     const deviceId = auth.id;
 
+    // Apply smooth timeframe normalization & clock fusion if service is active
+    let effectiveBatch = batch;
+    if (clockFusionService) {
+      const fused = clockFusionService.processBatch(deviceId, batch, Date.now());
+      effectiveBatch = {
+        header: {
+          ...batch.header,
+          baseTimestampMs: BigInt(fused.effectiveBaseMs),
+        },
+        records: fused.records,
+      };
+    }
+
     // 1. Persist batch to database
-    measurementService.insertBatch(deviceId, batch);
+    measurementService.insertBatch(deviceId, effectiveBatch);
 
     // 2. Update device heartbeat
-    deviceService.updateDeviceHeartbeat(deviceId, batch.header.clockSource);
+    deviceService.updateDeviceHeartbeat(deviceId, effectiveBatch.header.clockSource);
 
     // 3. Broadcast to all active SSE subscribers
-    sseBroadcaster.broadcastBatch(deviceId, batch);
+    sseBroadcaster.broadcastBatch(deviceId, effectiveBatch);
 
     return res.status(200).json({
       status: 'success',
-      accepted: batch.records.length,
+      accepted: effectiveBatch.records.length,
       device_id: deviceId,
-      clock_source: batch.header.clockSource,
+      clock_source: effectiveBatch.header.clockSource,
       received_at: new Date().toISOString(),
     });
   });
