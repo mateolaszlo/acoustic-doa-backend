@@ -71,7 +71,17 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
     try {
       const openApiYaml = fs.readFileSync(openApiPath, 'utf-8');
       const openApiSpec = YAML.parse(openApiYaml);
-      app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec));
+      app.use(
+        '/api/docs',
+        swaggerUi.serve,
+        swaggerUi.setup(openApiSpec, {
+          customSiteTitle: 'Acoustic DOA API Explorer',
+          swaggerOptions: {
+            persistAuthorization: true,
+            displayRequestDuration: true,
+          },
+        })
+      );
       console.log(`[API] Swagger documentation mounted at /api/docs`);
     } catch (err) {
       console.warn('[API] Warning: Failed to parse openapi.yaml:', err.message);
@@ -83,6 +93,33 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
 
   // 7. Mount API v1 Routers
   const apiRouter = express.Router();
+
+  // Root discovery endpoint for /api/v1
+  apiRouter.get('/', (_req, res) => {
+    res.status(200).json({
+      service: 'Acoustic DOA Tracking & Configuration API',
+      version: '1.0.0',
+      status: 'online',
+      docs_url: '/api/docs',
+      servers: [
+        { url: '/api/v1', description: 'Current Origin Gateway' },
+        { url: 'http://localhost:3000/api/v1', description: 'Local HTTP Gateway (Port 3000)' },
+        { url: 'https://localhost:3443/api/v1', description: 'Local HTTPS Secure Gateway (Port 3443)' },
+      ],
+      endpoints: {
+        devices: '/api/v1/devices',
+        calibration: '/api/v1/devices/:device_id/calibration',
+        measurements: '/api/v1/measurements',
+        stream: '/api/v1/devices/:device_id/stream',
+        tracks: '/api/v1/devices/:device_id/tracks',
+        stats: '/api/v1/devices/:device_id/stats',
+        config: '/api/v1/devices/:device_id/config',
+        auth: '/api/v1/auth/login',
+        users: '/api/v1/users',
+      },
+    });
+  });
+
   apiRouter.use(createDeviceRoutes(deviceService, calibrationService, measurementService, authMiddleware, clockFusionService, multiTargetTracker));
   apiRouter.use(createMeasurementRoutes(measurementService, deviceService, clockFusionService, multiTargetTracker));
   apiRouter.use(createConfigRoutes(calibrationService, authMiddleware));

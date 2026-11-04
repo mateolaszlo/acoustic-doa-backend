@@ -47,6 +47,7 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   console.log(`[HTTP] Device Ingestion Gateway listening on http://0.0.0.0:${HTTP_PORT}`);
   console.log(`[HTTP] Landing page: http://localhost:${HTTP_PORT}/`);
   console.log(`[HTTP] Swagger Docs: http://localhost:${HTTP_PORT}/api/docs`);
+  console.log(`[HTTP] API v1 Discovery: http://localhost:${HTTP_PORT}/api/v1`);
 });
 
 // 2. Start HTTPS Server (Web Visualizer Dashboard and management clients)

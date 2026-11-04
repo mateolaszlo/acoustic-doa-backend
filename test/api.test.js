@@ -280,4 +280,25 @@ describe('Acoustic DOA REST API Endpoints', () => {
     expect(allData).toContain('event: measurement_batch');
     expect(allData).toContain('-45');
   });
+
+  it('serves Swagger UI HTML documentation at /api/docs/', async () => {
+    const res = await fetch(`${baseUrl}/api/docs/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const html = await res.text();
+    expect(html).toContain('swagger-ui');
+  });
+
+  it('serves API v1 discovery metadata at GET /api/v1', async () => {
+    const res = await fetch(`${baseUrl}/api/v1`);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.status).toBe('online');
+    expect(data.docs_url).toBe('/api/docs');
+    expect(data.service).toContain('Acoustic DOA');
+    expect(data.servers).toBeInstanceOf(Array);
+    expect(data.servers[0].url).toBe('/api/v1');
+    expect(data.endpoints.devices).toBe('/api/v1/devices');
+    expect(data.endpoints.tracks).toBe('/api/v1/devices/:device_id/tracks');
+  });
 });

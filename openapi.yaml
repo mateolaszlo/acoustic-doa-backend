@@ -8,12 +8,52 @@ info:
     lightweight HTTP for ESP32 edge telemetry ingestion, and HTTPS for web visualizer,
     monitoring, and remote calibration.
 servers:
+  - url: /api/v1
+    description: Current Origin Gateway (Auto-detects active protocol, host, and port - recommended for interactive testing)
   - url: http://localhost:3000/api/v1
-    description: Local HTTP Development Gateway (ESP32 Edge & Local Web Client)
+    description: Local HTTP Gateway (ESP32 Ingestion & Local Dev Clients - Port 3000)
   - url: https://localhost:3443/api/v1
-    description: Local HTTPS Secure Gateway (Client 2 Web Visualizer)
+    description: Local HTTPS Secure Gateway (Encrypted Web Visualizer - Port 3443)
 
 paths:
+  /:
+    get:
+      summary: API v1 Service Discovery & Health Metadata
+      description: Returns service metadata, runtime status, available endpoints, and direct links to API documentation.
+      operationId: getApiDiscovery
+      tags:
+        - System
+      responses:
+        '200':
+          description: API discovery metadata and endpoint directory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: "Acoustic DOA Tracking & Configuration API"
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  status:
+                    type: string
+                    example: "online"
+                  docs_url:
+                    type: string
+                    example: "/api/docs"
+                  servers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url:
+                          type: string
+                        description:
+                          type: string
+                  endpoints:
+                    type: object
   /devices/{device_id}/calibration:
     get:
       summary: Retrieve Device Calibration & Server Time
