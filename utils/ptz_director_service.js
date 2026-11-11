@@ -677,9 +677,11 @@ export class PTZDirectorService {
     let currentCameras = [...runtime.cameras];
     let currentLiveId = runtime.liveCamId || 'cam-front';
 
-    // 1. Identify active speaker targets
+    // 1. Identify active speaker targets (including coasting tracks during speech pauses)
     const speakerTargets = [];
-    const activeSlots = activeTracks.filter((t) => t.state === 'ACTIVE' && (t.trackSlot === 0 || t.trackSlot === 1));
+    const activeSlots = activeTracks.filter(
+      (t) => (t.state === 'ACTIVE' || t.state === 'COASTING') && (t.trackSlot === 0 || t.trackSlot === 1)
+    );
 
     let resolvedZoneName = 'Unassigned';
 
@@ -696,7 +698,7 @@ export class PTZDirectorService {
         slotId: track.trackSlot,
         pos,
         angleDeg: track.angleDeg,
-        isActive: true,
+        isActive: track.state === 'ACTIVE',
         splDb: track.soundLevelDb,
       });
 
@@ -704,10 +706,14 @@ export class PTZDirectorService {
       if (z) resolvedZoneName = z.name;
     }
 
-    // Fallback: If no tracks active, check recent record
+    // Fallback: If no tracks active or coasting, check recent fresh raw records (< 500ms)
     if (speakerTargets.length === 0 && records.length > 0) {
-      const latest = records[records.length - 1];
-      if (nowMs - latest.timestampMs < 1600 && latest.soundLevelDb >= 50.0) {
+      const validRecords = records
+        .filter((r) => r.soundLevelDb >= 50.0 && nowMs - r.timestampMs < 500)
+        .sort((a, b) => b.timestampMs - a.timestampMs);
+
+      if (validRecords.length > 0) {
+        const latest = validRecords[0];
         const slot = latest.slotId ?? 0;
         const pos = calculateTablePerimeterPos(
           BASE_ROOM_CENTER_X,
@@ -730,7 +736,7 @@ export class PTZDirectorService {
       }
     }
 
-    if (speakerTargets.length > 0) {
+    if (speakerTargets.some((s) => s.isActive)) {
       runtime.lastRoomAudioTimeMs = nowMs;
     }
     runtime.activeZoneName = resolvedZoneName;
@@ -846,7 +852,10 @@ export class PTZDirectorService {
     let newLiveId = currentLiveId;
     let hasSwitched = false;
 
-    const dominantSpeaker = speakerTargets.slice().sort((a, b) => b.splDb - a.splDb)[0];
+    const dominantSpeaker = speakerTargets.slice().sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      return b.splDb - a.splDb;
+    })[0];
 
     if (dominantSpeaker) {
       const targetCam = currentCameras.find((c) => c.assignedTargetSlot === dominantSpeaker.slotId);

@@ -3,8 +3,10 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createApp } from '../app.js';
+import { initDatabase } from '../utils/db.js';
 import { encodeBinaryBatch, CLOCK_FLAG_UTC_SYNCHRONIZED } from '../utils/binary_parser.js';
 import {
+  PTZDirectorService,
   calculateTablePerimeterPos,
   calculateCameraBearing,
   scoreCameraCandidate,
@@ -22,6 +24,7 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
   const testDbPath = path.join(process.cwd(), 'test_studio_director.db');
   let adminToken;
   let viewerToken;
+  let ptzDirectorService;
 
   beforeAll(async () => {
     if (fs.existsSync(testDbPath)) {
@@ -31,6 +34,8 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
     }
 
     const app = createApp(testDbPath);
+    const db = initDatabase(testDbPath);
+    ptzDirectorService = new PTZDirectorService(db);
     await new Promise((resolve) => {
       server = http.createServer(app).listen(0, () => {
         const port = server.address().port;
@@ -293,6 +298,46 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
       const rearCam = studioData.cameras.find((c) => c.id === 'cam-rear');
       expect(rearCam.isLive).toBe(true);
       expect(rearCam.isLockedOnSubject).toBe(true);
+    });
+
+    it('holds camera lock on coasting tracks during speech pauses without falling back or twitching', () => {
+      const now = Date.now();
+      const coastingTracks = [
+        {
+          trackId: 1,
+          trackSlot: 0,
+          state: 'COASTING',
+          angleDeg: 0.0,
+          soundLevelDb: 58.0,
+          confidence: 0.8,
+        },
+      ];
+
+      // Stale echo/reflection record from 1200ms ago at a different angle
+      const staleRecords = [
+        {
+          timestampMs: now - 1200,
+          angleDeg: -15.0,
+          soundLevelDb: 65.0,
+          slotId: 0,
+        },
+      ];
+
+      const directorState = ptzDirectorService.processBatch(
+        1,
+        coastingTracks,
+        staleRecords,
+        [],
+        now
+      );
+
+      // Must remain locked on the coasting speaker at 0°, NOT the stale record at -15°
+      const lockedCam = directorState.cameras.find((c) => c.assignedTargetSlot === 0);
+      expect(lockedCam).toBeDefined();
+      expect(lockedCam.id).toBe('cam-rear');
+      expect(lockedCam.isLockedOnSubject).toBe(true);
+      // Rear camera bearing toward table perimeter at 0° is ~0°
+      expect(Math.abs(lockedCam.targetPanDeg)).toBeLessThan(5.0);
     });
   });
 });

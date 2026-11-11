@@ -65,8 +65,15 @@ export class AcousticTrack {
     this.lastPredictMs = timestampMs;
     if (dt <= 0) return;
 
-    // Angular velocity damping over speech pauses (half-life ~ 1.5 seconds)
-    const gamma = Math.exp(-dt / 1.5);
+    // Seated participants are stationary; during speech pauses (coasting),
+    // lock angular velocity to zero and do not extrapolate azimuth.
+    if (this.state === TRACK_STATE_COASTING) {
+      this.omega = 0.0;
+      return;
+    }
+
+    // Angular velocity damping over speech pauses (half-life ~ 0.5 seconds for snappy settling)
+    const gamma = Math.exp(-dt / 0.5);
 
     // S1 circular extrapolation
     this.theta = wrapAngle180(this.theta + this.omega * dt);
@@ -286,6 +293,7 @@ export class DeviceTrackManager {
             this.tracks.delete(track.id);
           } else if (silenceMs >= 3500) {
             track.state = TRACK_STATE_COASTING;
+            track.omega = 0.0;
           }
         }
       }
@@ -402,6 +410,7 @@ export class DeviceTrackManager {
           this.tracks.delete(track.id);
         } else if (silenceMs >= COASTING_MIN_SILENCE_MS) {
           track.state = TRACK_STATE_COASTING;
+          track.omega = 0.0;
         }
       } else if (track.state === TRACK_STATE_COASTING) {
         if (silenceMs > COAST_TIMEOUT_MS) {
