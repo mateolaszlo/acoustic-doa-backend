@@ -118,7 +118,29 @@ describe('Spatial Zones REST API & Service', () => {
     expect(res.status).toBe(400);
     const data = await res.json();
     expect(data.error.code).toBe('INVALID_ZONE_CONFIG');
-    expect(data.error.message).toContain('must be strictly less than max_angle_deg');
+    expect(data.error.message).toContain('cannot exceed max_angle_deg');
+  });
+
+  it('PUT /devices/1/zones accepts circular wrap-around zones across South seam (+-180°)', async () => {
+    const wrapAroundZones = [
+      { name: 'North Podium', min_angle_deg: -45.0, max_angle_deg: 45.0, color: '#10b981', alert_threshold_db: 75.0 },
+      { name: 'South Gallery', min_angle_deg: 135.0, max_angle_deg: -135.0, color: '#f59e0b', alert_threshold_db: 75.0 },
+    ];
+    const res = await fetch(`${baseUrl}/api/v1/devices/1/zones`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify(wrapAroundZones),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.zones.length).toBe(2);
+    const south = data.zones.find((z) => z.name === 'South Gallery');
+    expect(south).toBeDefined();
+    expect(south.min_angle_deg).toBe(135.0);
+    expect(south.max_angle_deg).toBe(-135.0);
   });
 
   it('PUT /devices/1/zones allows admin to update spatial zones and retrieve them', async () => {

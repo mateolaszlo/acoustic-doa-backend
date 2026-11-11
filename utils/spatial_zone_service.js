@@ -70,8 +70,15 @@ export class SpatialZoneService {
         return { success: false, error: `Zone '${z.name}' max_angle_deg must be between -180 and +180` };
       }
 
-      if (minDeg >= maxDeg) {
-        return { success: false, error: `Zone '${z.name}' min_angle_deg (${minDeg}) must be strictly less than max_angle_deg (${maxDeg})` };
+      if (minDeg === maxDeg) {
+        return { success: false, error: `Zone '${z.name}' min_angle_deg (${minDeg}) cannot equal max_angle_deg (${maxDeg})` };
+      }
+
+      if (minDeg > maxDeg && !(minDeg > 0 && maxDeg < 0)) {
+        return {
+          success: false,
+          error: `Zone '${z.name}' min_angle_deg (${minDeg}) cannot exceed max_angle_deg (${maxDeg}) unless wrapping across South (min > 0, max < 0)`,
+        };
       }
 
       if (z.alert_threshold_db !== undefined && z.alert_threshold_db !== null) {
