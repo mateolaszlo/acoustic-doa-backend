@@ -7,6 +7,7 @@ import { initDatabase } from '../utils/db.js';
 import { encodeBinaryBatch, CLOCK_FLAG_UTC_SYNCHRONIZED } from '../utils/binary_parser.js';
 import {
   PTZDirectorService,
+  DEFAULT_VIRTUAL_CAMERAS,
   calculateTablePerimeterPos,
   calculateCameraBearing,
   scoreCameraCandidate,
@@ -382,6 +383,90 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
       // Must hold position on the true speaker chair at 0° via sticky memory, NOT twitch to -45°!
       expect(rearCam.lastTargetPos).toBeDefined();
       expect(Math.abs(rearCam.targetPanDeg)).toBeLessThan(5.0);
+    });
+
+    it('supports 1-camera rig: aims single camera and gracefully avoids invalid camera cuts', async () => {
+      // Configure 1 camera (Stage Front Cam only)
+      const putRes = await fetch(`${baseUrl}/api/v1/devices/1/studio`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          cameras: [DEFAULT_VIRTUAL_CAMERAS[0]], // 'cam-front'
+        }),
+      });
+
+      expect(putRes.status).toBe(200);
+      const studioData = await putRes.json();
+      expect(studioData.cameras.length).toBe(1);
+      expect(studioData.cameras[0].id).toBe('cam-front');
+      expect(studioData.liveCamId).toBe('cam-front');
+
+      // Now feed an active speaker at 0° (Podium)
+      const now = Date.now();
+      const activeTracks = [
+        {
+          trackId: 10,
+          trackSlot: 0,
+          state: 'ACTIVE',
+          angleDeg: 0.0,
+          soundLevelDb: 74.0,
+          confidence: 0.95,
+        },
+      ];
+
+      const directorState = ptzDirectorService.processBatch(1, activeTracks, [], [], now);
+      expect(directorState.cameras.length).toBe(1);
+      expect(directorState.liveCamId).toBe('cam-front');
+      expect(directorState.cameras[0].isLive).toBe(true);
+      expect(directorState.cameras[0].assignedTargetSlot).toBe(0);
+      // Front camera (at yRatio ~0.08) looking South at Podium/stage
+      expect(directorState.cameras[0].isLockedOnSubject).toBe(true);
+    });
+
+    it('persists custom chair coordinates and clears them when customChairs is null', async () => {
+      // 1. Save custom chairs
+      const putChairs = await fetch(`${baseUrl}/api/v1/devices/1/studio`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          roomLayout: {
+            seatCount: 4,
+            customChairs: [
+              { id: 'custom-0', xRatio: 0.25, yRatio: 0.35 },
+              { id: 'custom-1', xRatio: 0.75, yRatio: 0.35 },
+            ],
+          },
+        }),
+      });
+
+      expect(putChairs.status).toBe(200);
+      const savedData = await putChairs.json();
+      expect(savedData.roomLayout.customChairs).toHaveLength(2);
+      expect(savedData.roomLayout.customChairs[0].id).toBe('custom-0');
+
+      // 2. Clear custom chairs with null (Auto-Arrange Chairs)
+      const clearChairs = await fetch(`${baseUrl}/api/v1/devices/1/studio`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          roomLayout: {
+            customChairs: null,
+          },
+        }),
+      });
+
+      expect(clearChairs.status).toBe(200);
+      const clearedData = await clearChairs.json();
+      expect(clearedData.roomLayout.customChairs).toBeUndefined();
     });
   });
 });

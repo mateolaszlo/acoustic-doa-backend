@@ -524,11 +524,16 @@ export class PTZDirectorService {
     const runtime = this._getOrCreateDeviceRuntimeState(deviceId);
 
     // Merge runtime live state into cameras
+    const activeLiveId = storedCameras.some((c) => c.id === (runtime.liveCamId || row.live_cam_id))
+      ? runtime.liveCamId || row.live_cam_id
+      : storedCameras[0]?.id || 'cam-front';
+    runtime.liveCamId = activeLiveId;
+
     const mergedCameras = storedCameras.map((storedCam) => {
       const rtCam = runtime.cameras.find((c) => c.id === storedCam.id);
       return {
         ...storedCam,
-        isLive: storedCam.id === (runtime.liveCamId || row.live_cam_id),
+        isLive: storedCam.id === activeLiveId,
         targetPanDeg: rtCam ? rtCam.targetPanDeg : storedCam.restingPanDeg,
         currentPanDeg: rtCam ? rtCam.currentPanDeg : storedCam.restingPanDeg,
         assignedTargetSlot: rtCam ? rtCam.assignedTargetSlot : null,
@@ -537,12 +542,14 @@ export class PTZDirectorService {
       };
     });
 
+    runtime.cameras = mergedCameras;
+
     return {
       deviceId,
       roomLayout,
       cameras: mergedCameras,
       directorConfig,
-      liveCamId: runtime.liveCamId || row.live_cam_id,
+      liveCamId: activeLiveId,
       activeZoneName: runtime.activeZoneName || 'None',
       updatedAt: row.updated_at,
     };
@@ -581,10 +588,24 @@ export class PTZDirectorService {
         if (typeof newLayout.seatCount === 'number') {
           newLayout.seatCount = Math.max(2, Math.min(32, Math.round(newLayout.seatCount)));
         }
+        // Custom chair coordinates persistence and clearing
+        if (payload.roomLayout.customChairs === null) {
+          delete newLayout.customChairs;
+        } else if (Array.isArray(payload.roomLayout.customChairs)) {
+          newLayout.customChairs = payload.roomLayout.customChairs.map((ch, idx) => ({
+            id: String(ch.id || `chair-${idx}`),
+            xRatio: Math.max(0.02, Math.min(0.98, Number(ch.xRatio ?? 0.5))),
+            yRatio: Math.max(0.02, Math.min(0.98, Number(ch.yRatio ?? 0.5))),
+          }));
+        }
       }
 
       if (Array.isArray(payload.cameras)) {
-        newCameras = payload.cameras.map((c) => {
+        // Enforce 1 to 3 cameras
+        const validLength = Math.max(1, Math.min(3, payload.cameras.length));
+        const slicedCameras = payload.cameras.slice(0, validLength);
+
+        newCameras = slicedCameras.map((c) => {
           const existing = current.cameras.find((ex) => ex.id === c.id) || {};
           return {
             id: String(c.id || existing.id || 'cam-custom'),
@@ -603,6 +624,11 @@ export class PTZDirectorService {
             lastTargetPos: c.lastTargetPos ?? existing.lastTargetPos ?? null,
           };
         });
+
+        // Ensure active liveCamId remains valid within the updated camera set
+        if (newCameras.length > 0 && !newCameras.some((c) => c.id === newLiveCamId)) {
+          newLiveCamId = newCameras[0].id;
+        }
       }
 
       if (payload.directorConfig && typeof payload.directorConfig === 'object') {
@@ -676,6 +702,10 @@ export class PTZDirectorService {
 
     let currentCameras = [...runtime.cameras];
     let currentLiveId = runtime.liveCamId || 'cam-front';
+    if (currentCameras.length > 0 && !currentCameras.some((c) => c.id === currentLiveId)) {
+      currentLiveId = currentCameras[0].id;
+      runtime.liveCamId = currentLiveId;
+    }
 
     // 1. Identify active speaker targets (including coasting tracks during speech pauses)
     const speakerTargets = [];
