@@ -339,5 +339,49 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
       // Rear camera bearing toward table perimeter at 0° is ~0°
       expect(Math.abs(lockedCam.targetPanDeg)).toBeLessThan(5.0);
     });
+
+    it('ignores LEAVE events in fallback and preserves sticky memory without twitching', () => {
+      const now = Date.now();
+      // First, establish lock on a speaker at 0° (Podium)
+      const activeTracks = [
+        {
+          trackId: 1,
+          trackSlot: 0,
+          state: 'ACTIVE',
+          angleDeg: 0.0,
+          soundLevelDb: 72.0,
+          confidence: 0.9,
+        },
+      ];
+      ptzDirectorService.processBatch(1, activeTracks, [], [], now);
+
+      // Next frame: Speaker leaves, emitting a LEAVE event with sector center -45°
+      const leaveRecords = [
+        {
+          timestampMs: now + 50,
+          angleDeg: -45.0,
+          soundLevelDb: 68.0,
+          slotId: 0,
+          eventType: 4,
+          eventTypeName: 'LEAVE',
+          activeSources: 0,
+        },
+      ];
+
+      const directorState = ptzDirectorService.processBatch(
+        1,
+        [], // No active tracks after LEAVE
+        leaveRecords,
+        [],
+        now + 50
+      );
+
+      // Must NOT create a speaker target from the LEAVE event
+      const rearCam = directorState.cameras.find((c) => c.id === 'cam-rear');
+      expect(rearCam.assignedTargetSlot).toBeNull();
+      // Must hold position on the true speaker chair at 0° via sticky memory, NOT twitch to -45°!
+      expect(rearCam.lastTargetPos).toBeDefined();
+      expect(Math.abs(rearCam.targetPanDeg)).toBeLessThan(5.0);
+    });
   });
 });

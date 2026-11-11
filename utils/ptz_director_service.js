@@ -707,9 +707,18 @@ export class PTZDirectorService {
     }
 
     // Fallback: If no tracks active or coasting, check recent fresh raw records (< 500ms)
+    // IMPORTANT: Exclude LEAVE events (eventType === 4), DELETED records, and zero-source events!
     if (speakerTargets.length === 0 && records.length > 0) {
       const validRecords = records
-        .filter((r) => r.soundLevelDb >= 50.0 && nowMs - r.timestampMs < 500)
+        .filter(
+          (r) =>
+            r.soundLevelDb >= 50.0 &&
+            nowMs - r.timestampMs < 500 &&
+            r.eventType !== 4 &&
+            r.eventTypeName !== 'LEAVE' &&
+            r.trackState !== 'DELETED' &&
+            (r.activeSources === undefined || r.activeSources > 0)
+        )
         .sort((a, b) => b.timestampMs - a.timestampMs);
 
       if (validRecords.length > 0) {
