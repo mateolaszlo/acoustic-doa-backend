@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS device_calibration (
   angle_offset_deg REAL NOT NULL DEFAULT 0.0,
   adaptive_threshold_enabled INTEGER NOT NULL DEFAULT 1,
   snr_margin_db REAL NOT NULL DEFAULT 8.0,
+  sector_width_deg REAL NOT NULL DEFAULT 15.0,
+  sector_hysteresis_deg REAL NOT NULL DEFAULT 3.0,
+  tracker_hold_timeout_ms INTEGER NOT NULL DEFAULT 2500,
   updated_at TEXT NOT NULL
 );
 
@@ -31,6 +34,10 @@ CREATE TABLE IF NOT EXISTS measurements (
   sync_quality INTEGER NOT NULL DEFAULT 0,
   session_id INTEGER,
   track_id INTEGER,
+  slot_id INTEGER NOT NULL DEFAULT 0,
+  sector_id INTEGER NOT NULL DEFAULT 0,
+  event_type INTEGER NOT NULL DEFAULT 1,
+  active_sources INTEGER NOT NULL DEFAULT 1,
   smoothed_angle_deg REAL,
   angle_deg REAL NOT NULL,
   delay_us REAL NOT NULL,

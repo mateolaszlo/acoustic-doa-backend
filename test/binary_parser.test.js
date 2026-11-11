@@ -3,12 +3,18 @@ import {
   parseBinaryBatch,
   encodeBinaryBatch,
   calculateBatchCrc32,
+  calculateProjectedDelayUs,
   MEASUREMENT_BATCH_HEADER_SIZE,
   MEASUREMENT_RECORD_SIZE,
   MEASUREMENT_BATCH_CRC_SIZE,
   CLOCK_FLAG_UTC_SYNCHRONIZED,
   CLOCK_FLAG_SERVER_SYNCHRONIZED,
   CLOCK_FLAG_MONOTONIC_UPTIME,
+  SECTOR_EVENT_ENTER,
+  SECTOR_EVENT_MOVE,
+  SECTOR_EVENT_HEARTBEAT,
+  SECTOR_EVENT_LEAVE,
+  INVALID_SECTOR_ID,
 } from '../utils/binary_parser.js';
 
 describe('Binary Protocol Parser (POST /api/v1/measurements)', () => {
@@ -25,7 +31,10 @@ describe('Binary Protocol Parser (POST /api/v1/measurements)', () => {
       {
         offsetMs: 25,
         angleDeg: 45.0,
-        delayUs: 85.5,
+        slotId: 0,
+        sectorId: 15,
+        eventType: SECTOR_EVENT_ENTER,
+        activeSources: 1,
         soundLevelDb: 68.2,
         confidence: 0.91,
       },
@@ -51,9 +60,59 @@ describe('Binary Protocol Parser (POST /api/v1/measurements)', () => {
     expect(r.offsetMs).toBe(25);
     expect(r.timestampMs).toBe(1791830000025);
     expect(r.angleDeg).toBeCloseTo(45.0, 1);
-    expect(r.delayUs).toBeCloseTo(85.5, 1);
+    expect(r.slotId).toBe(0);
+    expect(r.sectorId).toBe(15);
+    expect(r.eventType).toBe(SECTOR_EVENT_ENTER);
+    expect(r.eventTypeName).toBe('ENTER');
+    expect(r.activeSources).toBe(1);
+    expect(r.delayUs).toBeCloseTo(calculateProjectedDelayUs(45.0), 1);
     expect(r.soundLevelDb).toBeCloseTo(68.2, 1);
     expect(r.confidence).toBeCloseTo(0.91, 2);
+  });
+
+  it('correctly decodes multi-speaker sector transitions including LEAVE (0xFF sector_id)', () => {
+    const baseMs = 1791830000000n;
+    const records = [
+      {
+        offsetMs: 0,
+        angleDeg: -30.0,
+        slotId: 0,
+        sectorId: 10,
+        eventType: SECTOR_EVENT_MOVE,
+        activeSources: 2,
+        soundLevelDb: 72.0,
+        confidence: 0.95,
+      },
+      {
+        offsetMs: 15,
+        angleDeg: 60.0,
+        slotId: 1,
+        sectorId: INVALID_SECTOR_ID,
+        eventType: SECTOR_EVENT_LEAVE,
+        activeSources: 1,
+        soundLevelDb: 52.0,
+        confidence: 0.70,
+      },
+    ];
+
+    const buffer = encodeBinaryBatch(baseMs, CLOCK_FLAG_UTC_SYNCHRONIZED, records);
+    const res = parseBinaryBatch(buffer);
+    expect(res.success).toBe(true);
+    expect(res.batch.records.length).toBe(2);
+
+    const r0 = res.batch.records[0];
+    expect(r0.slotId).toBe(0);
+    expect(r0.sectorId).toBe(10);
+    expect(r0.eventType).toBe(2);
+    expect(r0.eventTypeName).toBe('MOVE');
+    expect(r0.activeSources).toBe(2);
+
+    const r1 = res.batch.records[1];
+    expect(r1.slotId).toBe(1);
+    expect(r1.sectorId).toBe(255);
+    expect(r1.eventType).toBe(4);
+    expect(r1.eventTypeName).toBe('LEAVE');
+    expect(r1.activeSources).toBe(1);
   });
 
   it('correctly decodes a maximum 24-record batch (496 bytes)', () => {
@@ -183,5 +242,26 @@ describe('Binary Protocol Parser (POST /api/v1/measurements)', () => {
     expect(res.success).toBe(false);
     expect(res.statusCode).toBe(400);
     expect(res.error).toContain('invalid angle_deg');
+  });
+
+  it('rejects invalid event_type or slot_id when CRC is valid', () => {
+    const baseMs = 1791830000000n;
+    const records = [
+      {
+        offsetMs: 0,
+        angleDeg: 0.0,
+        slotId: 5, // Invalid: exceeds 3
+        sectorId: 0,
+        eventType: 1,
+        activeSources: 1,
+        soundLevelDb: 60.0,
+        confidence: 0.9,
+      },
+    ];
+    const buffer = encodeBinaryBatch(baseMs, CLOCK_FLAG_UTC_SYNCHRONIZED, records);
+    const res = parseBinaryBatch(buffer);
+    expect(res.success).toBe(false);
+    expect(res.statusCode).toBe(400);
+    expect(res.error).toContain('invalid slot_id');
   });
 });

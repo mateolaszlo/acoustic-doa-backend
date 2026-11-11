@@ -135,8 +135,9 @@ export class DeviceService {
       INSERT INTO device_calibration (
         device_id, microphone_distance_m, sample_rate, window_size,
         correlation_threshold, sound_level_threshold_db, db_spl_offset,
-        angle_offset_deg, adaptive_threshold_enabled, snr_margin_db, updated_at
-      ) VALUES (?, 0.082, 44100, 1024, 0.40, 55.0, 96.5, 0.0, 1, 8.0, ?)
+        angle_offset_deg, adaptive_threshold_enabled, snr_margin_db,
+        sector_width_deg, sector_hysteresis_deg, tracker_hold_timeout_ms, updated_at
+      ) VALUES (?, 0.082, 44100, 1024, 0.40, 55.0, 96.5, 0.0, 1, 8.0, 15.0, 3.0, 2500, ?)
     `);
 
     let newId;

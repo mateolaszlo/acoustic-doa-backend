@@ -63,6 +63,9 @@ Standard status codes:
     "angle_offset_deg": 0.0,
     "adaptive_threshold_enabled": true,
     "snr_margin_db": 8.0,
+    "sector_width_deg": 15.0,
+    "sector_hysteresis_deg": 3.0,
+    "tracker_hold_timeout_ms": 2500,
     "server_time_unix_ms": 1791830000123
   }
   ```

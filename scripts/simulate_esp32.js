@@ -95,20 +95,31 @@ async function run() {
         const recordsCount = Math.floor(Math.random() * 4) + 1; // 1 to 4 records per batch
         const records = [];
 
+        const sectorWidth = calib.sector_width_deg || 15.0;
+        const numSectors = Math.round(360.0 / sectorWidth);
+
         for (let i = 0; i < recordsCount; i++) {
           // Slowly rotate simulated sound source around 360 degrees
           angle = (angle + 12.0) % 360.0;
           let wrappedAngle = angle > 180.0 ? angle - 360.0 : angle;
 
-          // Sound level: 55 to 85 dB SPL
+          // Quantized sector ID matching firmware
+          const normAngle = ((wrappedAngle + 180.0) % 360.0 + 360.0) % 360.0;
+          const sectorId = Math.floor(normAngle / sectorWidth + 0.5) % numSectors;
+
+          // Sound level: 58 to 83 dB SPL
           const soundLevel = 58.0 + Math.random() * 25.0;
           const confidence = 0.75 + Math.random() * 0.23;
-          const delayUs = (0.082 * Math.sin((wrappedAngle * Math.PI) / 180.0) / 343.0) * 1e6;
+          const slotId = i % 2;
+          const eventType = batchCount === 0 && i === 0 ? 1 : (batchCount % 10 === 0 ? 3 : 2); // ENTER, HEARTBEAT, or MOVE
 
           records.push({
             offsetMs: i * 25,
             angleDeg: Number(wrappedAngle.toFixed(1)),
-            delayUs: Number(delayUs.toFixed(1)),
+            slotId,
+            sectorId,
+            eventType,
+            activeSources: Math.min(2, recordsCount),
             soundLevelDb: Number(soundLevel.toFixed(1)),
             confidence: Number(confidence.toFixed(2)),
           });

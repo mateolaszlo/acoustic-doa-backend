@@ -58,6 +58,9 @@ describe('Acoustic DOA REST API Endpoints', () => {
     expect(data.microphone_distance_m).toBeCloseTo(0.082, 3);
     expect(data.sample_rate).toBe(44100);
     expect(data.window_size).toBe(1024);
+    expect(data.sector_width_deg).toBe(15.0);
+    expect(data.sector_hysteresis_deg).toBe(3.0);
+    expect(data.tracker_hold_timeout_ms).toBe(2500);
     expect(typeof data.server_time_unix_ms).toBe('number');
   });
 
@@ -136,6 +139,10 @@ describe('Acoustic DOA REST API Endpoints', () => {
     const data = await res.json();
     expect(data.records.length).toBe(2);
     expect(data.records[0].angle_deg).toBeCloseTo(30.0, 1);
+    expect(data.records[0].slot_id).toBeDefined();
+    expect(data.records[0].sector_id).toBeDefined();
+    expect(data.records[0].event_type).toBeDefined();
+    expect(data.records[0].active_sources).toBeDefined();
     expect(data.records[1].angle_deg).toBeCloseTo(35.0, 1);
   });
 
@@ -181,6 +188,9 @@ describe('Acoustic DOA REST API Endpoints', () => {
         angle_offset_deg: 12.5,
         sound_level_threshold_db: 58.0,
         adaptive_threshold_enabled: false,
+        sector_width_deg: 20.0,
+        sector_hysteresis_deg: 4.5,
+        tracker_hold_timeout_ms: 3000,
       }),
     });
 
@@ -189,6 +199,9 @@ describe('Acoustic DOA REST API Endpoints', () => {
     expect(updated.angle_offset_deg).toBeCloseTo(12.5, 1);
     expect(updated.sound_level_threshold_db).toBeCloseTo(58.0, 1);
     expect(updated.adaptive_threshold_enabled).toBe(false);
+    expect(updated.sector_width_deg).toBeCloseTo(20.0, 1);
+    expect(updated.sector_hysteresis_deg).toBeCloseTo(4.5, 1);
+    expect(updated.tracker_hold_timeout_ms).toBe(3000);
 
     // Verify subsequent calibration poll reflects this immediately
     const pollRes = await fetch(`${baseUrl}/api/v1/devices/1/calibration`, {
@@ -196,6 +209,27 @@ describe('Acoustic DOA REST API Endpoints', () => {
     });
     const pollData = await pollRes.json();
     expect(pollData.angle_offset_deg).toBeCloseTo(12.5, 1);
+    expect(pollData.sector_width_deg).toBe(20.0);
+    expect(pollData.sector_hysteresis_deg).toBe(4.5);
+    expect(pollData.tracker_hold_timeout_ms).toBe(3000);
+  });
+
+  it('rejects calibration update when sector_hysteresis exceeds sector_width', async () => {
+    const updateRes = await fetch(`${baseUrl}/api/v1/devices/1/config`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        sector_width_deg: 10.0,
+        sector_hysteresis_deg: 12.0, // Exceeds width
+      }),
+    });
+
+    expect(updateRes.status).toBe(400);
+    const err = await updateRes.json();
+    expect(err.error.message).toContain('cannot exceed sector_width_deg');
   });
 
   it('computes acoustic statistics with 36 angular bins', async () => {

@@ -9,7 +9,8 @@ export class CalibrationService {
     const stmt = this.db.prepare(`
       SELECT device_id, microphone_distance_m, sample_rate, window_size,
              correlation_threshold, sound_level_threshold_db, db_spl_offset,
-             angle_offset_deg, adaptive_threshold_enabled, snr_margin_db
+             angle_offset_deg, adaptive_threshold_enabled, snr_margin_db,
+             sector_width_deg, sector_hysteresis_deg, tracker_hold_timeout_ms
       FROM device_calibration
       WHERE device_id = ?
     `);
@@ -27,6 +28,9 @@ export class CalibrationService {
       angle_offset_deg: row.angle_offset_deg,
       adaptive_threshold_enabled: Boolean(row.adaptive_threshold_enabled),
       snr_margin_db: row.snr_margin_db,
+      sector_width_deg: row.sector_width_deg ?? 15.0,
+      sector_hysteresis_deg: row.sector_hysteresis_deg ?? 3.0,
+      tracker_hold_timeout_ms: row.tracker_hold_timeout_ms ?? 2500,
       server_time_unix_ms: Date.now(),
     };
   }
@@ -42,6 +46,20 @@ export class CalibrationService {
       return { success: false, error: `Device ${deviceId} not found` };
     }
 
+    const sectorWidth = input.sector_width_deg ?? input.sector_width;
+    const sectorHysteresis = input.sector_hysteresis_deg ?? input.hysteresis_deg;
+    const holdTimeout = input.tracker_hold_timeout_ms ?? input.hold_timeout_ms;
+
+    // Cross-check hysteresis against target width
+    const targetWidth = sectorWidth ?? current.sector_width_deg;
+    const targetHysteresis = sectorHysteresis ?? current.sector_hysteresis_deg;
+    if (targetHysteresis > targetWidth) {
+      return {
+        success: false,
+        error: `sector_hysteresis_deg (${targetHysteresis}) cannot exceed sector_width_deg (${targetWidth})`,
+      };
+    }
+
     const updated = {
       microphone_distance_m: input.microphone_distance_m ?? current.microphone_distance_m,
       sample_rate: input.sample_rate ?? current.sample_rate,
@@ -54,6 +72,9 @@ export class CalibrationService {
           ? input.adaptive_threshold_enabled ? 1 : 0
           : current.adaptive_threshold_enabled ? 1 : 0,
       snr_margin_db: input.snr_margin_db ?? current.snr_margin_db,
+      sector_width_deg: targetWidth,
+      sector_hysteresis_deg: targetHysteresis,
+      tracker_hold_timeout_ms: holdTimeout ?? current.tracker_hold_timeout_ms,
       updated_at: new Date().toISOString(),
     };
 
@@ -67,6 +88,9 @@ export class CalibrationService {
           angle_offset_deg = ?,
           adaptive_threshold_enabled = ?,
           snr_margin_db = ?,
+          sector_width_deg = ?,
+          sector_hysteresis_deg = ?,
+          tracker_hold_timeout_ms = ?,
           updated_at = ?
       WHERE device_id = ?
     `);
@@ -80,6 +104,9 @@ export class CalibrationService {
       updated.angle_offset_deg,
       updated.adaptive_threshold_enabled,
       updated.snr_margin_db,
+      updated.sector_width_deg,
+      updated.sector_hysteresis_deg,
+      updated.tracker_hold_timeout_ms,
       updated.updated_at,
       deviceId
     );
@@ -93,11 +120,11 @@ export class CalibrationService {
       throw new Error(`Device ${deviceId} not found`);
     }
 
-    // Get the most recent N valid measurements with high confidence
+    // Get the most recent N valid measurements with high confidence (excluding LEAVE events)
     const stmt = this.db.prepare(`
       SELECT angle_deg, confidence
       FROM measurements
-      WHERE device_id = ? AND confidence >= 0.3
+      WHERE device_id = ? AND confidence >= 0.3 AND (event_type IS NULL OR event_type != 4)
       ORDER BY timestamp_ms DESC
       LIMIT ?
     `);

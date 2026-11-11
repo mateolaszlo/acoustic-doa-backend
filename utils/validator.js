@@ -20,6 +20,15 @@ export const ANGLE_OFFSET_MAX_DEG = 180.0;
 export const SNR_MARGIN_MIN_DB = 0.0;
 export const SNR_MARGIN_MAX_DB = 60.0;
 
+export const SECTOR_WIDTH_MIN_DEG = 5.0;
+export const SECTOR_WIDTH_MAX_DEG = 90.0;
+
+export const SECTOR_HYSTERESIS_MIN_DEG = 0.0;
+export const SECTOR_HYSTERESIS_MAX_DEG = 15.0;
+
+export const TRACKER_HOLD_MIN_MS = 200;
+export const TRACKER_HOLD_MAX_MS = 30000;
+
 export const SUPPORTED_SAMPLE_RATES = [44100, 48000];
 export const REQUIRED_WINDOW_SIZE = 1024;
 
@@ -83,6 +92,36 @@ export function validateCalibrationUpdate(input) {
         input.snr_margin_db < SNR_MARGIN_MIN_DB ||
         input.snr_margin_db > SNR_MARGIN_MAX_DB) {
       return { valid: false, error: `snr_margin_db must be between ${SNR_MARGIN_MIN_DB} and ${SNR_MARGIN_MAX_DB} dB` };
+    }
+  }
+
+  const sectorWidth = input.sector_width_deg !== undefined ? input.sector_width_deg : input.sector_width;
+  if (sectorWidth !== undefined) {
+    if (!Number.isFinite(sectorWidth) ||
+        sectorWidth < SECTOR_WIDTH_MIN_DEG ||
+        sectorWidth > SECTOR_WIDTH_MAX_DEG) {
+      return { valid: false, error: `sector_width_deg must be between ${SECTOR_WIDTH_MIN_DEG} and ${SECTOR_WIDTH_MAX_DEG} deg` };
+    }
+  }
+
+  const sectorHysteresis = input.sector_hysteresis_deg !== undefined ? input.sector_hysteresis_deg : input.hysteresis_deg;
+  if (sectorHysteresis !== undefined) {
+    if (!Number.isFinite(sectorHysteresis) ||
+        sectorHysteresis < SECTOR_HYSTERESIS_MIN_DEG ||
+        sectorHysteresis > SECTOR_HYSTERESIS_MAX_DEG) {
+      return { valid: false, error: `sector_hysteresis_deg must be between ${SECTOR_HYSTERESIS_MIN_DEG} and ${SECTOR_HYSTERESIS_MAX_DEG} deg` };
+    }
+    if (sectorWidth !== undefined && sectorHysteresis > sectorWidth) {
+      return { valid: false, error: `sector_hysteresis_deg (${sectorHysteresis}) cannot exceed sector_width_deg (${sectorWidth})` };
+    }
+  }
+
+  const holdTimeout = input.tracker_hold_timeout_ms !== undefined ? input.tracker_hold_timeout_ms : input.hold_timeout_ms;
+  if (holdTimeout !== undefined) {
+    if (!Number.isFinite(holdTimeout) ||
+        holdTimeout < TRACKER_HOLD_MIN_MS ||
+        holdTimeout > TRACKER_HOLD_MAX_MS) {
+      return { valid: false, error: `tracker_hold_timeout_ms must be between ${TRACKER_HOLD_MIN_MS} and ${TRACKER_HOLD_MAX_MS} ms` };
     }
   }
 

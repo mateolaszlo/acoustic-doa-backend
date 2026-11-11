@@ -43,7 +43,7 @@ This document provides the byte-level contract implemented by the ESP32 acoustic
 
 ## 3. Record Structure (20 Bytes per Record)
 
-Each of the $N$ records in the batch is packed contiguously:
+Each of the $N$ records in the batch is packed contiguously matching ESP32 `src/network/rest_protocol.h`:
 
 ```
  0                   1                   2                   3
@@ -53,7 +53,7 @@ Each of the $N$ records in the batch is packed contiguously:
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                     Angle (float32 degrees)                   |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                     Delay (float32 microsec)                  |
+|    Slot ID    |   Sector ID   |  Event Type   | Active Sources|
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                  Sound Level (float32 dB SPL)                 |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -64,10 +64,15 @@ Each of the $N$ records in the batch is packed contiguously:
 | Offset (Rel) | Size | Name | Type | Unit / Range | Description |
 |:---:|:---:|:---|:---:|:---|:---|
 | `+0` | 4 | `offset_ms` | `uint32_le` | Milliseconds | Time offset relative to `base_timestamp_ms`. Exact event time = `base_timestamp_ms + offset_ms`. |
-| `+4` | 4 | `angle_deg` | `float32_le` | Degrees $[-180.0, +180.0]$ | Azimuth angle $\phi$. $0^\circ = \text{Front}$, $+90^\circ = \text{Right}$, $\pm 180^\circ = \text{Back}$, $-90^\circ = \text{Left}$. |
-| `+8` | 4 | `delay_us` | `float32_le` | Microseconds | Equivalent projected X-axis delay $\frac{d \cdot \sin\phi}{c} \times 10^6\text{ }\mu\text{s}$. |
+| `+4` | 4 | `angle_deg` | `float32_le` | Degrees $[-180.0, +180.0]$ | Quantized sector center azimuth angle $\phi$. $0^\circ = \text{Front}$, $+90^\circ = \text{Right}$, $\pm 180^\circ = \text{Back}$, $-90^\circ = \text{Left}$. |
+| `+8` | 1 | `slot_id` | `uint8` | $[0, 2]$ | Persistent tracked speaker slot index (`0` or `1`). |
+| `+9` | 1 | `sector_id` | `uint8` | $[0, 72]$ or `0xFF` | Discrete angular sector index, or `0xFF` (`255`) on `LEAVE`. |
+| `+10` | 1 | `event_type` | `uint8` | `1..4` | Sector tracker state transition: `1 = ENTER`, `2 = MOVE`, `3 = HEARTBEAT`, `4 = LEAVE`. |
+| `+11` | 1 | `active_sources` | `uint8` | $[0, 2]$ | Total currently active tracked speakers after this transition. |
 | `+12` | 4 | `sound_level_db` | `float32_le` | dB SPL | Calibrated acoustic SPL level (`rms_db + db_spl_offset`). |
-| `+16` | 4 | `confidence` | `float32_le` | Dimensionless $[0.0, 1.0]$ | Weighted least-squares correlation confidence score across the 6 microphone pairs. |
+| `+16` | 4 | `confidence` | `float32_le` | Dimensionless $[0.0, 1.0]$ | Smoothed tracker confidence score in $[0.0, 1.0]$. |
+
+*(Note: Wavefront time delay $\Delta t$ is computed on the backend from $\phi$ as $\tau = \frac{d \cdot \sin\phi}{c} \times 10^6\text{ }\mu\text{s}$ for downstream dashboards and historical queries).*
 
 ---
 

@@ -36,7 +36,7 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
     console.warn('[DB] Warning: db/schema.sql not found; relying on existing database schema.');
   }
 
-  // Idempotent column and index migration for timestamp fusion engine
+  // Idempotent column and index migration for timestamp fusion engine and sector tracker
   try {
     const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='measurements'").get();
     if (tableCheck) {
@@ -58,6 +58,18 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
       if (!existingCols.includes('track_id')) {
         db.exec('ALTER TABLE measurements ADD COLUMN track_id INTEGER');
       }
+      if (!existingCols.includes('slot_id')) {
+        db.exec('ALTER TABLE measurements ADD COLUMN slot_id INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!existingCols.includes('sector_id')) {
+        db.exec('ALTER TABLE measurements ADD COLUMN sector_id INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!existingCols.includes('event_type')) {
+        db.exec('ALTER TABLE measurements ADD COLUMN event_type INTEGER NOT NULL DEFAULT 1');
+      }
+      if (!existingCols.includes('active_sources')) {
+        db.exec('ALTER TABLE measurements ADD COLUMN active_sources INTEGER NOT NULL DEFAULT 1');
+      }
       if (!existingCols.includes('smoothed_angle_deg')) {
         db.exec('ALTER TABLE measurements ADD COLUMN smoothed_angle_deg REAL');
         db.exec('UPDATE measurements SET smoothed_angle_deg = angle_deg WHERE smoothed_angle_deg IS NULL');
@@ -69,8 +81,26 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
       db.exec('CREATE INDEX IF NOT EXISTS idx_measurements_session ON measurements (device_id, session_id)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_measurements_track ON measurements (device_id, track_id)');
     }
+
+    const calibTableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='device_calibration'").get();
+    if (calibTableCheck) {
+      const existingCalibCols = db
+        .prepare("PRAGMA table_info('device_calibration')")
+        .all()
+        .map((c) => c.name);
+
+      if (!existingCalibCols.includes('sector_width_deg')) {
+        db.exec('ALTER TABLE device_calibration ADD COLUMN sector_width_deg REAL NOT NULL DEFAULT 15.0');
+      }
+      if (!existingCalibCols.includes('sector_hysteresis_deg')) {
+        db.exec('ALTER TABLE device_calibration ADD COLUMN sector_hysteresis_deg REAL NOT NULL DEFAULT 3.0');
+      }
+      if (!existingCalibCols.includes('tracker_hold_timeout_ms')) {
+        db.exec('ALTER TABLE device_calibration ADD COLUMN tracker_hold_timeout_ms INTEGER NOT NULL DEFAULT 2500');
+      }
+    }
   } catch (err) {
-    console.warn('[DB] Measurements schema migration notice:', err.message);
+    console.warn('[DB] Schema migration notice:', err.message);
   }
 
   // 1. Seed sample device 1 if devices table is empty
@@ -88,8 +118,9 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
       INSERT INTO device_calibration (
         device_id, microphone_distance_m, sample_rate, window_size,
         correlation_threshold, sound_level_threshold_db, db_spl_offset,
-        angle_offset_deg, adaptive_threshold_enabled, snr_margin_db, updated_at
-      ) VALUES (1, 0.082, 44100, 1024, 0.40, 55.0, 96.5, 0.0, 1, 8.0, ?)
+        angle_offset_deg, adaptive_threshold_enabled, snr_margin_db,
+        sector_width_deg, sector_hysteresis_deg, tracker_hold_timeout_ms, updated_at
+      ) VALUES (1, 0.082, 44100, 1024, 0.40, 55.0, 96.5, 0.0, 1, 8.0, 15.0, 3.0, 2500, ?)
     `);
 
     db.transaction(() => {

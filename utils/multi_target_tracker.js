@@ -50,6 +50,10 @@ export class AcousticTrack {
     this.hits = 1;
     this.misses = 0;
 
+    // Discrete sector tracker properties
+    this.sectorId = initialDetection.sectorId !== undefined ? initialDetection.sectorId : null;
+    this.lastEventType = initialDetection.eventTypeName || null;
+
     // Running smoothed acoustics
     this.soundLevelDb = initialDetection.soundLevelDb;
     this.confidence = initialDetection.confidence;
@@ -131,6 +135,13 @@ export class AcousticTrack {
     this.confidence = 0.65 * detection.confidence + 0.35 * this.confidence;
     this.latestRawAngleDeg = rawZ;
 
+    if (detection.sectorId !== undefined) {
+      this.sectorId = detection.sectorId;
+    }
+    if (detection.eventTypeName) {
+      this.lastEventType = detection.eventTypeName;
+    }
+
     this.hits++;
     this.lastHitMs = timestampMs;
     this.misses = 0;
@@ -191,6 +202,95 @@ export class DeviceTrackManager {
     // 1. Predict all existing tracks to timestampMs
     for (const track of this.tracks.values()) {
       track.predict(timestampMs);
+    }
+
+    const hasHardwareEvents = detections.some(
+      (d) => d.eventType !== undefined && d.eventType >= 1 && d.eventType <= 4
+    );
+
+    if (hasHardwareEvents) {
+      const annotatedDetections = [];
+      const updatedTrackIds = new Set();
+
+      for (const det of detections) {
+        const slot = det.slotId !== undefined ? det.slotId : 0;
+        const evType = det.eventType;
+
+        if (evType === 4) { // LEAVE event
+          let victimTrackId = this.slotAssignments[slot];
+          let track = victimTrackId ? this.tracks.get(victimTrackId) : null;
+
+          if (!track) {
+            for (const t of this.tracks.values()) {
+              if (t.slot === slot) {
+                track = t;
+                break;
+              }
+            }
+          }
+
+          const trackId = track ? track.id : null;
+          if (track) {
+            this._releaseSlot(slot, track.id);
+            this.tracks.delete(track.id);
+          }
+
+          annotatedDetections.push({
+            ...det,
+            trackId,
+            trackSlot: slot,
+            trackState: 'DELETED',
+            smoothedAngleDeg: det.angleDeg,
+            angularVelocityDegPerSec: 0.0,
+          });
+        } else {
+          // ENTER (1), MOVE (2), HEARTBEAT (3)
+          let assignedTrackId = this.slotAssignments[slot];
+          let track = assignedTrackId ? this.tracks.get(assignedTrackId) : null;
+
+          if (!track) {
+            const newTrackId = this.nextTrackId++;
+            track = new AcousticTrack(newTrackId, det, timestampMs);
+            track.state = TRACK_STATE_ACTIVE;
+            track.slot = slot;
+            track.sectorId = det.sectorId;
+            track.lastEventType = det.eventTypeName || 'ENTER';
+            this.slotAssignments[slot] = newTrackId;
+            this.tracks.set(newTrackId, track);
+          } else {
+            track.update(det, timestampMs);
+            track.state = TRACK_STATE_ACTIVE;
+            track.sectorId = det.sectorId;
+            track.lastEventType = det.eventTypeName || (evType === 2 ? 'MOVE' : 'HEARTBEAT');
+          }
+
+          updatedTrackIds.add(track.id);
+
+          annotatedDetections.push({
+            ...det,
+            trackId: track.id,
+            trackSlot: slot,
+            trackState: TRACK_STATE_ACTIVE,
+            smoothedAngleDeg: Number(track.theta.toFixed(1)),
+            angularVelocityDegPerSec: Number(track.omega.toFixed(1)),
+          });
+        }
+      }
+
+      // Evaluate silence on remaining tracks that received no events this frame
+      for (const track of Array.from(this.tracks.values())) {
+        if (!updatedTrackIds.has(track.id)) {
+          const silenceMs = timestampMs - track.lastHitMs;
+          if (silenceMs > 15000) {
+            this._releaseSlot(track.slot, track.id);
+            this.tracks.delete(track.id);
+          } else if (silenceMs >= 3500) {
+            track.state = TRACK_STATE_COASTING;
+          }
+        }
+      }
+
+      return annotatedDetections;
     }
 
     const trackList = Array.from(this.tracks.values());
@@ -335,6 +435,8 @@ export class DeviceTrackManager {
         result.push({
           trackId: t.id,
           trackSlot: t.slot !== null ? t.slot : 0,
+          sectorId: t.sectorId !== undefined ? t.sectorId : null,
+          lastEventType: t.lastEventType || null,
           state: t.state,
           angleDeg: Number(t.theta.toFixed(1)),
           rawAngleDeg: Number(t.latestRawAngleDeg.toFixed(1)),

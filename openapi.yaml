@@ -98,6 +98,9 @@ paths:
                 angle_offset_deg: 0.0
                 adaptive_threshold_enabled: true
                 snr_margin_db: 8.0
+                sector_width_deg: 15.0
+                sector_hysteresis_deg: 3.0
+                tracker_hold_timeout_ms: 2500
                 server_time_unix_ms: 1791830000123
         '401':
           description: Unauthorized - missing or invalid x-api-key
@@ -779,6 +782,26 @@ components:
           type: number
           format: float
           example: 8.0
+        sector_width_deg:
+          type: number
+          format: float
+          minimum: 5.0
+          maximum: 90.0
+          description: Angular width in degrees for discrete spatial sector quantization
+          example: 15.0
+        sector_hysteresis_deg:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 15.0
+          description: Schmitt-trigger boundary hysteresis margin in degrees
+          example: 3.0
+        tracker_hold_timeout_ms:
+          type: integer
+          minimum: 200
+          maximum: 30000
+          description: Inactivity duration in milliseconds before emitting a LEAVE event
+          example: 2500
         server_time_unix_ms:
           type: integer
           description: Current server Unix timestamp in milliseconds for clock synchronization
@@ -843,6 +866,23 @@ components:
           type: integer
           nullable: true
           description: Persistent acoustic track identifier assigned by MTT
+          example: 1
+        slot_id:
+          type: integer
+          description: Tracked speaker slot index (0 or 1)
+          example: 0
+        sector_id:
+          type: integer
+          description: Discrete angular sector identifier (0..N-1, or 255 for LEAVE)
+          example: 12
+        event_type:
+          type: integer
+          enum: [1, 2, 3, 4]
+          description: Sector tracker state transition (1=ENTER, 2=MOVE, 3=HEARTBEAT, 4=LEAVE)
+          example: 1
+        active_sources:
+          type: integer
+          description: Total currently active tracked speakers (0..2)
           example: 1
         smoothed_angle_deg:
           type: number

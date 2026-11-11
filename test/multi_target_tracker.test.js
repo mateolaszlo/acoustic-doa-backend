@@ -243,4 +243,115 @@ describe('MultiTargetTracker & Circular Kalman S1 Filter', () => {
     expect(manager.getActiveTracksSnapshot().length).toBe(0);
     expect(manager.slotAssignments[0]).toBeNull();
   });
+
+  it('6. Hardware sector transitions (ENTER -> MOVE -> HEARTBEAT -> LEAVE): directly manages hardware slots and immediate slot release on LEAVE', () => {
+    const deviceId = 1;
+    let t = 1720000000000;
+
+    // 1. Speaker 0 enters in sector 10 (-30 deg)
+    const enterBatch = {
+      header: { clockFlags: 1, baseTimestampMs: BigInt(t), clockSource: 'SNTP_UTC' },
+      records: [
+        {
+          offsetMs: 0,
+          timestampMs: t,
+          angleDeg: -30.0,
+          slotId: 0,
+          sectorId: 10,
+          eventType: 1, // ENTER
+          eventTypeName: 'ENTER',
+          activeSources: 1,
+          soundLevelDb: 70.0,
+          confidence: 0.88,
+        },
+      ],
+    };
+    const res1 = tracker.processBatch(deviceId, enterBatch);
+    expect(res1.records[0].trackSlot).toBe(0);
+    expect(res1.records[0].trackState).toBe(TRACK_STATE_ACTIVE);
+    expect(res1.activeTracks.length).toBe(1);
+    expect(res1.activeTracks[0].trackSlot).toBe(0);
+    expect(res1.activeTracks[0].sectorId).toBe(10);
+    expect(res1.activeTracks[0].lastEventType).toBe('ENTER');
+
+    // 2. Speaker 1 enters in sector 14 (+30 deg)
+    t += 50;
+    const enterBatch2 = {
+      header: { clockFlags: 1, baseTimestampMs: BigInt(t), clockSource: 'SNTP_UTC' },
+      records: [
+        {
+          offsetMs: 0,
+          timestampMs: t,
+          angleDeg: 30.0,
+          slotId: 1,
+          sectorId: 14,
+          eventType: 1, // ENTER
+          eventTypeName: 'ENTER',
+          activeSources: 2,
+          soundLevelDb: 72.0,
+          confidence: 0.90,
+        },
+      ],
+    };
+    const res2 = tracker.processBatch(deviceId, enterBatch2);
+    expect(res2.activeTracks.length).toBe(2);
+    expect(res2.activeTracks[0].trackSlot).toBe(0);
+    expect(res2.activeTracks[1].trackSlot).toBe(1);
+
+    // 3. Speaker 0 moves to sector 11 (-15 deg)
+    t += 100;
+    const moveBatch = {
+      header: { clockFlags: 1, baseTimestampMs: BigInt(t), clockSource: 'SNTP_UTC' },
+      records: [
+        {
+          offsetMs: 0,
+          timestampMs: t,
+          angleDeg: -15.0,
+          slotId: 0,
+          sectorId: 11,
+          eventType: 2, // MOVE
+          eventTypeName: 'MOVE',
+          activeSources: 2,
+          soundLevelDb: 71.0,
+          confidence: 0.92,
+        },
+      ],
+    };
+    const res3 = tracker.processBatch(deviceId, moveBatch);
+    const active0 = res3.activeTracks.find((tr) => tr.trackSlot === 0);
+    expect(active0).toBeDefined();
+    expect(active0.sectorId).toBe(11);
+    expect(active0.lastEventType).toBe('MOVE');
+
+    // 4. Speaker 0 emits LEAVE (4)
+    t += 200;
+    const leaveBatch = {
+      header: { clockFlags: 1, baseTimestampMs: BigInt(t), clockSource: 'SNTP_UTC' },
+      records: [
+        {
+          offsetMs: 0,
+          timestampMs: t,
+          angleDeg: -15.0,
+          slotId: 0,
+          sectorId: 255, // INVALID_SECTOR_ID
+          eventType: 4, // LEAVE
+          eventTypeName: 'LEAVE',
+          activeSources: 1,
+          soundLevelDb: 50.0,
+          confidence: 0.5,
+        },
+      ],
+    };
+    const res4 = tracker.processBatch(deviceId, leaveBatch);
+    expect(res4.records[0].trackState).toBe('DELETED');
+    expect(res4.records[0].trackSlot).toBe(0);
+
+    // Only Speaker 1 (slot 1) should remain in activeTracks
+    expect(res4.activeTracks.length).toBe(1);
+    expect(res4.activeTracks[0].trackSlot).toBe(1);
+
+    const manager = tracker.getManager(deviceId);
+    expect(manager.slotAssignments[0]).toBeNull();
+    expect(manager.slotAssignments[1]).not.toBeNull();
+  });
 });

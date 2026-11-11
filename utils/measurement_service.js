@@ -7,9 +7,9 @@ export class MeasurementService {
     const insertStmt = this.db.prepare(`
       INSERT INTO measurements (
         device_id, timestamp_ms, raw_timestamp_ms, clock_flags,
-        sync_quality, session_id, track_id, smoothed_angle_deg,
-        angle_deg, delay_us, sound_level_db, confidence, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sync_quality, session_id, track_id, slot_id, sector_id, event_type, active_sources,
+        smoothed_angle_deg, angle_deg, delay_us, sound_level_db, confidence, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const nowIso = new Date().toISOString();
@@ -24,6 +24,10 @@ export class MeasurementService {
           r.syncQuality !== undefined ? r.syncQuality : 0,
           r.sessionId !== undefined ? r.sessionId : null,
           r.trackId !== undefined ? r.trackId : null,
+          r.slotId !== undefined ? r.slotId : 0,
+          r.sectorId !== undefined ? r.sectorId : 0,
+          r.eventType !== undefined ? r.eventType : 1,
+          r.activeSources !== undefined ? r.activeSources : 1,
           r.smoothedAngleDeg !== undefined ? r.smoothedAngleDeg : r.angleDeg,
           r.angleDeg,
           r.delayUs,
@@ -41,7 +45,8 @@ export class MeasurementService {
   getLatestMeasurements(deviceId, sinceTimestampMs = 0, limit = 50) {
     const stmt = this.db.prepare(`
       SELECT id, timestamp_ms, raw_timestamp_ms, clock_flags, sync_quality, session_id,
-             track_id, smoothed_angle_deg, angle_deg, delay_us, sound_level_db, confidence
+             track_id, slot_id, sector_id, event_type, active_sources,
+             smoothed_angle_deg, angle_deg, delay_us, sound_level_db, confidence
       FROM measurements
       WHERE device_id = ? AND timestamp_ms > ?
       ORDER BY timestamp_ms DESC, id DESC
@@ -82,7 +87,8 @@ export class MeasurementService {
 
     const dataStmt = this.db.prepare(`
       SELECT id, timestamp_ms, raw_timestamp_ms, clock_flags, sync_quality, session_id,
-             track_id, smoothed_angle_deg, angle_deg, delay_us, sound_level_db, confidence
+             track_id, slot_id, sector_id, event_type, active_sources,
+             smoothed_angle_deg, angle_deg, delay_us, sound_level_db, confidence
       FROM measurements
       WHERE ${whereClause}
       ORDER BY timestamp_ms DESC, id DESC
@@ -119,13 +125,13 @@ export class MeasurementService {
       cutoffMs = sinceMs;
     }
 
-    // Aggregate metrics
+    // Aggregate metrics (excluding LEAVE departure notifications)
     const aggStmt = this.db.prepare(`
       SELECT COUNT(*) as count,
              AVG(sound_level_db) as avg_spl,
              MAX(sound_level_db) as peak_spl
       FROM measurements
-      WHERE device_id = ? AND timestamp_ms >= ?
+      WHERE device_id = ? AND timestamp_ms >= ? AND (event_type IS NULL OR event_type != 4)
     `);
     const agg = aggStmt.get(deviceId, cutoffMs);
 
@@ -135,7 +141,7 @@ export class MeasurementService {
     const angleStmt = this.db.prepare(`
       SELECT angle_deg, confidence
       FROM measurements
-      WHERE device_id = ? AND timestamp_ms >= ?
+      WHERE device_id = ? AND timestamp_ms >= ? AND (event_type IS NULL OR event_type != 4)
     `);
     const angleRows = angleStmt.all(deviceId, cutoffMs);
 

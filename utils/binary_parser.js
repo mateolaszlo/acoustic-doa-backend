@@ -15,6 +15,34 @@ export const CLOCK_FLAG_SERVER_SYNCHRONIZED = 0x0002;
 export const CLOCK_FLAG_SERVER_MIDPOINT = 0x0003;
 export const CLOCK_FLAG_MONOTONIC_UPTIME = 0x0004;
 
+export const SECTOR_EVENT_NONE = 0;
+export const SECTOR_EVENT_ENTER = 1;
+export const SECTOR_EVENT_MOVE = 2;
+export const SECTOR_EVENT_HEARTBEAT = 3;
+export const SECTOR_EVENT_LEAVE = 4;
+export const INVALID_SECTOR_ID = 0xFF; // 255
+
+export const SECTOR_EVENT_NAMES = {
+  1: 'ENTER',
+  2: 'MOVE',
+  3: 'HEARTBEAT',
+  4: 'LEAVE',
+};
+
+/**
+ * Derives projected acoustic wavefront time-of-flight delay in microseconds
+ * from azimuth angle and array baseline spacing (default d = 0.082 m, c = 343.9 m/s)
+ * @param {number} angleDeg
+ * @param {number} micDistanceM
+ * @param {number} speedOfSound
+ * @returns {number} Delay in microseconds
+ */
+export function calculateProjectedDelayUs(angleDeg, micDistanceM = 0.082, speedOfSound = 343.9) {
+  if (!Number.isFinite(angleDeg)) return 0.0;
+  const rad = (angleDeg * Math.PI) / 180.0;
+  return Number(((micDistanceM * Math.sin(rad)) / speedOfSound * 1e6).toFixed(1));
+}
+
 /**
  * Calculates the standard IEEE 802.3 CRC32 checksum of a buffer using native zlib C bindings.
  * Matches ESP32 esp_rom_crc32_le on hardware.
@@ -113,7 +141,10 @@ export function parseBinaryBatch(buffer) {
   for (let i = 0; i < measurementCount; i++) {
     const offsetMs = buffer.readUInt32LE(offset);
     const angleDeg = buffer.readFloatLE(offset + 4);
-    const delayUs = buffer.readFloatLE(offset + 8);
+    const slotId = buffer.readUInt8(offset + 8);
+    const sectorId = buffer.readUInt8(offset + 9);
+    const eventType = buffer.readUInt8(offset + 10);
+    const activeSources = buffer.readUInt8(offset + 11);
     const soundLevelDb = buffer.readFloatLE(offset + 12);
     const confidence = buffer.readFloatLE(offset + 16);
 
@@ -123,6 +154,38 @@ export function parseBinaryBatch(buffer) {
         success: false,
         statusCode: 400,
         error: `Record ${i}: invalid angle_deg ${angleDeg} (must be in [-180, +180])`,
+      };
+    }
+
+    if (slotId > 3) {
+      return {
+        success: false,
+        statusCode: 400,
+        error: `Record ${i}: invalid slot_id ${slotId} (must be between 0 and 3)`,
+      };
+    }
+
+    if (sectorId > 72 && sectorId !== INVALID_SECTOR_ID) {
+      return {
+        success: false,
+        statusCode: 400,
+        error: `Record ${i}: invalid sector_id ${sectorId} (must be <= 72 or 0xFF)`,
+      };
+    }
+
+    if (eventType < 1 || eventType > 4) {
+      return {
+        success: false,
+        statusCode: 400,
+        error: `Record ${i}: invalid event_type ${eventType} (must be 1=ENTER, 2=MOVE, 3=HEARTBEAT, 4=LEAVE)`,
+      };
+    }
+
+    if (activeSources > 4) {
+      return {
+        success: false,
+        statusCode: 400,
+        error: `Record ${i}: invalid active_sources ${activeSources} (must be between 0 and 4)`,
       };
     }
 
@@ -142,10 +205,17 @@ export function parseBinaryBatch(buffer) {
       };
     }
 
+    const delayUs = calculateProjectedDelayUs(angleDeg);
+
     records.push({
       offsetMs,
       timestampMs: baseMsNumber + offsetMs,
       angleDeg,
+      slotId,
+      sectorId,
+      eventType,
+      eventTypeName: SECTOR_EVENT_NAMES[eventType] || 'UNKNOWN',
+      activeSources,
       delayUs,
       soundLevelDb,
       confidence,
@@ -165,8 +235,10 @@ export function parseBinaryBatch(buffer) {
 
 /**
  * Encodes a synthetic batch for testing or simulation with 4-byte CRC32 trailer
+ * Records layout: offset_ms (uint32), angle_deg (float32), slot_id (uint8), sector_id (uint8),
+ * event_type (uint8), active_sources (uint8), sound_level_db (float32), confidence (float32)
  */
-export function encodeBinaryBatch(baseTimestampMs, clockFlags, records) {
+export function encodeBinaryBatch(baseTimestampMs, clockFlags, records, sectorWidthDeg = 15.0) {
   const count = records.length;
   if (count < 1 || count > 24) {
     throw new Error(`Record count ${count} must be between 1 and 24`);
@@ -185,9 +257,26 @@ export function encodeBinaryBatch(baseTimestampMs, clockFlags, records) {
   // 20-byte records
   let offset = MEASUREMENT_BATCH_HEADER_SIZE;
   for (const r of records) {
+    const slotId = r.slotId !== undefined ? r.slotId : 0;
+    const eventType = r.eventType !== undefined ? r.eventType : SECTOR_EVENT_ENTER;
+    let sectorId = r.sectorId;
+    if (sectorId === undefined) {
+      if (eventType === SECTOR_EVENT_LEAVE) {
+        sectorId = INVALID_SECTOR_ID;
+      } else {
+        const numSectors = Math.max(1, Math.round(360.0 / sectorWidthDeg));
+        const normalized = ((r.angleDeg + 180.0) % 360.0 + 360.0) % 360.0;
+        sectorId = Math.floor(normalized / sectorWidthDeg + 0.5) % numSectors;
+      }
+    }
+    const activeSources = r.activeSources !== undefined ? r.activeSources : 1;
+
     buffer.writeUInt32LE(r.offsetMs, offset);
     buffer.writeFloatLE(r.angleDeg, offset + 4);
-    buffer.writeFloatLE(r.delayUs, offset + 8);
+    buffer.writeUInt8(slotId, offset + 8);
+    buffer.writeUInt8(sectorId, offset + 9);
+    buffer.writeUInt8(eventType, offset + 10);
+    buffer.writeUInt8(activeSources, offset + 11);
     buffer.writeFloatLE(r.soundLevelDb, offset + 12);
     buffer.writeFloatLE(r.confidence, offset + 16);
     offset += MEASUREMENT_RECORD_SIZE;
