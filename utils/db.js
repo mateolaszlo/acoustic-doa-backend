@@ -99,6 +99,21 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
         db.exec('ALTER TABLE device_calibration ADD COLUMN tracker_hold_timeout_ms INTEGER NOT NULL DEFAULT 2500');
       }
     }
+
+    // Ensure spatial_zones table exists
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS spatial_zones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        min_angle_deg REAL NOT NULL,
+        max_angle_deg REAL NOT NULL,
+        color TEXT NOT NULL DEFAULT '#10b981',
+        alert_threshold_db REAL DEFAULT 75.0,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_spatial_zones_device ON spatial_zones (device_id);
+    `);
   } catch (err) {
     console.warn('[DB] Schema migration notice:', err.message);
   }
@@ -129,6 +144,27 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
     })();
 
     console.log(`[DB] Seeded initial device 1 (API key: ${defaultApiKey})`);
+  }
+
+  // Seed default spatial zones for device 1 if none exist
+  try {
+    const zoneCount = db.prepare('SELECT COUNT(*) as count FROM spatial_zones WHERE device_id = 1').get().count;
+    if (zoneCount === 0) {
+      const now = new Date().toISOString();
+      const insertZone = db.prepare(`
+        INSERT INTO spatial_zones (device_id, name, min_angle_deg, max_angle_deg, color, alert_threshold_db, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      db.transaction(() => {
+        insertZone.run(1, 'Podium / Stage', -30.0, 30.0, '#10b981', 75.0, now);
+        insertZone.run(1, 'Audience Left', -90.0, -30.0, '#818cf8', 75.0, now);
+        insertZone.run(1, 'Audience Right', 30.0, 90.0, '#38bdf8', 75.0, now);
+        insertZone.run(1, 'Rear Gallery', 150.0, 180.0, '#f59e0b', 75.0, now);
+      })();
+      console.log('[DB] Seeded initial spatial zones for device 1');
+    }
+  } catch (err) {
+    console.warn('[DB] Spatial zones seeding check skipped:', err.message);
   }
 
   // 2. Seed default admin account if users table is empty

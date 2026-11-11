@@ -608,6 +608,83 @@ paths:
                     items:
                       $ref: '#/components/schemas/AcousticTrack'
 
+  /devices/{device_id}/zones:
+    get:
+      summary: Get Spatial Zones
+      description: Retrieve geofenced room sectors and acoustic zones defined for this device.
+      operationId: getDeviceSpatialZones
+      tags:
+        - Spatial Intelligence
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of spatial zones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SpatialZone'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update Spatial Zones
+      description: Replace all spatial zones / geofenced sectors for this device (Admin only).
+      operationId: updateDeviceSpatialZones
+      tags:
+        - Spatial Intelligence
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/SpatialZoneInput'
+      responses:
+        '200':
+          description: Successfully updated spatial zones
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  device_id:
+                    type: integer
+                  zones:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SpatialZone'
+        '400':
+          description: Invalid zone configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
   /auth/login:
     post:
       summary: User Login
@@ -1122,6 +1199,55 @@ components:
         role:
           type: string
           enum: ["admin", "viewer"]
+
+    SpatialZone:
+      type: object
+      properties:
+        id:
+          type: integer
+        device_id:
+          type: integer
+        name:
+          type: string
+          example: Podium / Stage
+        min_angle_deg:
+          type: number
+          example: -30.0
+        max_angle_deg:
+          type: number
+          example: 30.0
+        color:
+          type: string
+          example: "#10b981"
+        alert_threshold_db:
+          type: number
+          example: 75.0
+        created_at:
+          type: string
+          format: date-time
+
+    SpatialZoneInput:
+      type: object
+      required:
+        - name
+        - min_angle_deg
+        - max_angle_deg
+      properties:
+        name:
+          type: string
+          example: Podium / Stage
+        min_angle_deg:
+          type: number
+          example: -30.0
+        max_angle_deg:
+          type: number
+          example: 30.0
+        color:
+          type: string
+          example: "#10b981"
+        alert_threshold_db:
+          type: number
+          example: 75.0
 
     ErrorResponse:
       type: object

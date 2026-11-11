@@ -6,7 +6,8 @@ export function createDeviceRoutes(
   measurementService,
   authMiddleware,
   clockFusionService = null,
-  multiTargetTracker = null
+  multiTargetTracker = null,
+  spatialZoneService = null
 ) {
   const router = Router();
   const adminGuard = authMiddleware
@@ -192,6 +193,97 @@ export function createDeviceRoutes(
     deviceService.updateDeviceHeartbeat(deviceId, 'SERVER_UTC');
 
     return res.status(200).json(calib);
+  });
+
+  /**
+   * GET /api/v1/devices/:device_id/zones
+   * Retrieve spatial zones / acoustic geofences for this device (Public / Viewer / Admin)
+   */
+  router.get('/devices/:device_id/zones', (req, res) => {
+    const deviceId = parseInt(req.params.device_id, 10);
+    if (isNaN(deviceId)) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_DEVICE_ID',
+          message: 'Device ID must be an integer',
+          status: 400,
+        },
+      });
+    }
+
+    const device = deviceService.getDevice(deviceId);
+    if (!device) {
+      return res.status(404).json({
+        error: {
+          code: 'DEVICE_NOT_FOUND',
+          message: `Device ${deviceId} not found`,
+          status: 404,
+        },
+      });
+    }
+
+    if (!spatialZoneService) {
+      return res.status(200).json([]);
+    }
+
+    const zones = spatialZoneService.getZones(deviceId);
+    return res.status(200).json(zones);
+  });
+
+  /**
+   * PUT /api/v1/devices/:device_id/zones
+   * Configure spatial zones for this device (Admin only)
+   */
+  router.put('/devices/:device_id/zones', ...adminGuard, (req, res) => {
+    const deviceId = parseInt(req.params.device_id, 10);
+    if (isNaN(deviceId)) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_DEVICE_ID',
+          message: 'Device ID must be an integer',
+          status: 400,
+        },
+      });
+    }
+
+    const device = deviceService.getDevice(deviceId);
+    if (!device) {
+      return res.status(404).json({
+        error: {
+          code: 'DEVICE_NOT_FOUND',
+          message: `Device ${deviceId} not found`,
+          status: 404,
+        },
+      });
+    }
+
+    if (!spatialZoneService) {
+      return res.status(500).json({
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Spatial zone service not configured',
+          status: 500,
+        },
+      });
+    }
+
+    const zonesPayload = Array.isArray(req.body) ? req.body : (req.body?.zones || []);
+    const result = spatialZoneService.updateZones(deviceId, zonesPayload);
+    if (!result.success) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_ZONE_CONFIG',
+          message: result.error,
+          status: 400,
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      device_id: deviceId,
+      zones: result.zones,
+    });
   });
 
   return router;

@@ -56,8 +56,20 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS spatial_zones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  min_angle_deg REAL NOT NULL,
+  max_angle_deg REAL NOT NULL,
+  color TEXT NOT NULL DEFAULT '#10b981',
+  alert_threshold_db REAL DEFAULT 75.0,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_measurements_device_time ON measurements (device_id, timestamp_ms DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_measurements_time ON measurements (timestamp_ms DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_measurements_session ON measurements (device_id, session_id);
 CREATE INDEX IF NOT EXISTS idx_measurements_track ON measurements (device_id, track_id);
+CREATE INDEX IF NOT EXISTS idx_spatial_zones_device ON spatial_zones (device_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
