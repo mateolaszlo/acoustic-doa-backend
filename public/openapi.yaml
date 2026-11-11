@@ -685,6 +685,70 @@ paths:
         '403':
           description: Forbidden
 
+  /devices/{device_id}/studio:
+    get:
+      summary: Get Studio Configuration
+      description: Retrieve conference room layout, virtual cameras, director configuration, and authoritative PTZ telemetry (Public / Viewer / Admin).
+      operationId: getDeviceStudioConfig
+      tags:
+        - Spatial Intelligence
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Studio configuration and runtime director state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudioConfig'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update Studio Configuration
+      description: Configure room layout, virtual cameras, director tuning parameters, or manual live camera override (Admin only).
+      operationId: updateDeviceStudioConfig
+      tags:
+        - Spatial Intelligence
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudioConfigUpdate'
+      responses:
+        '200':
+          description: Successfully updated studio configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudioConfig'
+        '400':
+          description: Invalid studio configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
   /auth/login:
     post:
       summary: User Login
@@ -1248,6 +1312,148 @@ components:
         alert_threshold_db:
           type: number
           example: 75.0
+
+    RoomLayoutConfig:
+      type: object
+      properties:
+        tableShape:
+          type: string
+          enum: [oval, round, ushape, hollow_square]
+          example: oval
+        tableWidthRatio:
+          type: number
+          example: 0.52
+        tableHeightRatio:
+          type: number
+          example: 0.32
+        seatCount:
+          type: integer
+          example: 8
+        customChairs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              xRatio:
+                type: number
+              yRatio:
+                type: number
+
+    VirtualCamera:
+      type: object
+      properties:
+        id:
+          type: string
+          example: cam-front
+        name:
+          type: string
+          example: Stage Front Cam
+        role:
+          type: string
+          enum: [front, rear, side]
+          example: front
+        xRatio:
+          type: number
+          example: 0.5
+        yRatio:
+          type: number
+          example: 0.08
+        restingPanDeg:
+          type: number
+          example: 180.0
+        currentPanDeg:
+          type: number
+          example: 180.0
+        targetPanDeg:
+          type: number
+          example: 180.0
+        fovDeg:
+          type: number
+          example: 60.0
+        color:
+          type: string
+          example: "#10b981"
+        isLive:
+          type: boolean
+          example: true
+        assignedTargetSlot:
+          type: integer
+          nullable: true
+          example: 0
+        isLockedOnSubject:
+          type: boolean
+          example: true
+        lastTargetPos:
+          type: object
+          nullable: true
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+
+    CameraDirectorConfig:
+      type: object
+      properties:
+        slewSpeedDegPerSec:
+          type: number
+          example: 120.0
+        instantCut:
+          type: boolean
+          example: false
+        holdTimeMs:
+          type: integer
+          example: 1800
+        confirmTimeMs:
+          type: integer
+          example: 350
+        hysteresisMarginPercent:
+          type: number
+          example: 20
+
+    StudioConfig:
+      type: object
+      properties:
+        deviceId:
+          type: integer
+          example: 1
+        roomLayout:
+          $ref: '#/components/schemas/RoomLayoutConfig'
+        cameras:
+          type: array
+          items:
+            $ref: '#/components/schemas/VirtualCamera'
+        directorConfig:
+          $ref: '#/components/schemas/CameraDirectorConfig'
+        liveCamId:
+          type: string
+          example: cam-front
+        activeZoneName:
+          type: string
+          example: Podium / Stage
+        updatedAt:
+          type: string
+          format: date-time
+
+    StudioConfigUpdate:
+      type: object
+      properties:
+        reset:
+          type: boolean
+          description: If true, resets studio layout and director settings to default factory values
+        roomLayout:
+          $ref: '#/components/schemas/RoomLayoutConfig'
+        cameras:
+          type: array
+          items:
+            $ref: '#/components/schemas/VirtualCamera'
+        directorConfig:
+          $ref: '#/components/schemas/CameraDirectorConfig'
+        liveCamId:
+          type: string
+          example: cam-front
 
     ErrorResponse:
       type: object

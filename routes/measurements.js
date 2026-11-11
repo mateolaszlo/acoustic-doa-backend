@@ -6,7 +6,9 @@ export function createMeasurementRoutes(
   measurementService,
   deviceService,
   clockFusionService = null,
-  multiTargetTracker = null
+  multiTargetTracker = null,
+  ptzDirectorService = null,
+  spatialZoneService = null
 ) {
   const router = Router();
 
@@ -76,6 +78,19 @@ export function createMeasurementRoutes(
       };
     }
 
+    // 2b. Apply PTZ Director decision engine across active tracks and acoustic arrivals
+    if (ptzDirectorService) {
+      const zones = spatialZoneService ? spatialZoneService.getZones(deviceId) : [];
+      const directorState = ptzDirectorService.processBatch(
+        deviceId,
+        effectiveBatch.activeTracks || [],
+        effectiveBatch.records || [],
+        zones,
+        Date.now()
+      );
+      effectiveBatch.director = directorState;
+    }
+
     // 3. Persist batch to database
     measurementService.insertBatch(deviceId, effectiveBatch);
 
@@ -92,6 +107,7 @@ export function createMeasurementRoutes(
       clock_source: effectiveBatch.header.clockSource,
       received_at: new Date().toISOString(),
       active_tracks: effectiveBatch.activeTracks ? effectiveBatch.activeTracks.length : 0,
+      live_cam_id: effectiveBatch.director ? effectiveBatch.director.liveCamId : undefined,
     });
   });
 

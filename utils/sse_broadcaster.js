@@ -48,9 +48,25 @@ class SSEBroadcaster {
       crcVerified: Boolean(batch.header.crcVerified),
       records: batch.records,
       activeTracks: batch.activeTracks || [],
+      director: batch.director || null,
     });
 
     const sseMessage = `event: measurement_batch\ndata: ${payload}\n\n`;
+
+    for (const [id, client] of this.clients.entries()) {
+      if (client.deviceId === deviceId || client.deviceId === 0) {
+        try {
+          client.res.write(sseMessage);
+        } catch (err) {
+          console.error(`[SSE] Write error for client ${id}:`, err);
+          this.removeClient(id);
+        }
+      }
+    }
+  }
+
+  broadcastStudioConfig(deviceId, studioSnapshot) {
+    const sseMessage = `event: studio_config\ndata: ${JSON.stringify(studioSnapshot)}\n\n`;
 
     for (const [id, client] of this.clients.entries()) {
       if (client.deviceId === deviceId || client.deviceId === 0) {

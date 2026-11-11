@@ -67,6 +67,15 @@ CREATE TABLE IF NOT EXISTS spatial_zones (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS device_studio_config (
+  device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+  room_layout_json TEXT NOT NULL,
+  cameras_json TEXT NOT NULL,
+  director_config_json TEXT NOT NULL,
+  live_cam_id TEXT NOT NULL DEFAULT 'cam-front',
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_measurements_device_time ON measurements (device_id, timestamp_ms DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_measurements_time ON measurements (timestamp_ms DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_measurements_session ON measurements (device_id, session_id);

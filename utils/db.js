@@ -3,6 +3,11 @@ import bcrypt from 'bcryptjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  DEFAULT_ROOM_LAYOUT,
+  DEFAULT_VIRTUAL_CAMERAS,
+  DEFAULT_DIRECTOR_CONFIG,
+} from './ptz_director_service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -100,7 +105,7 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
       }
     }
 
-    // Ensure spatial_zones table exists
+    // Ensure spatial_zones and device_studio_config tables exist
     db.exec(`
       CREATE TABLE IF NOT EXISTS spatial_zones (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +118,15 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_spatial_zones_device ON spatial_zones (device_id);
+
+      CREATE TABLE IF NOT EXISTS device_studio_config (
+        device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+        room_layout_json TEXT NOT NULL,
+        cameras_json TEXT NOT NULL,
+        director_config_json TEXT NOT NULL,
+        live_cam_id TEXT NOT NULL DEFAULT 'cam-front',
+        updated_at TEXT NOT NULL
+      );
     `);
   } catch (err) {
     console.warn('[DB] Schema migration notice:', err.message);
@@ -165,6 +179,28 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
     }
   } catch (err) {
     console.warn('[DB] Spatial zones seeding check skipped:', err.message);
+  }
+
+  // Seed default studio config for device 1 if none exists
+  try {
+    const studioCount = db.prepare('SELECT COUNT(*) as count FROM device_studio_config WHERE device_id = 1').get().count;
+    if (studioCount === 0) {
+      const now = new Date().toISOString();
+      const insertStudio = db.prepare(`
+        INSERT INTO device_studio_config (
+          device_id, room_layout_json, cameras_json, director_config_json, live_cam_id, updated_at
+        ) VALUES (1, ?, ?, ?, 'cam-front', ?)
+      `);
+      insertStudio.run(
+        JSON.stringify(DEFAULT_ROOM_LAYOUT),
+        JSON.stringify(DEFAULT_VIRTUAL_CAMERAS),
+        JSON.stringify(DEFAULT_DIRECTOR_CONFIG),
+        now
+      );
+      console.log('[DB] Seeded initial studio configuration for device 1');
+    }
+  } catch (err) {
+    console.warn('[DB] Studio config seeding check skipped:', err.message);
   }
 
   // 2. Seed default admin account if users table is empty

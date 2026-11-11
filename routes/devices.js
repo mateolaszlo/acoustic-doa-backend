@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { sseBroadcaster } from '../utils/sse_broadcaster.js';
 
 export function createDeviceRoutes(
   deviceService,
@@ -7,7 +8,8 @@ export function createDeviceRoutes(
   authMiddleware,
   clockFusionService = null,
   multiTargetTracker = null,
-  spatialZoneService = null
+  spatialZoneService = null,
+  ptzDirectorService = null
 ) {
   const router = Router();
   const adminGuard = authMiddleware
@@ -105,6 +107,9 @@ export function createDeviceRoutes(
       if (multiTargetTracker) {
         multiTargetTracker.resetDevice(deviceId);
       }
+      if (ptzDirectorService) {
+        ptzDirectorService.resetDevice(deviceId);
+      }
       return res.status(200).json(result);
     } catch (err) {
       const status = err.message.includes('not found') ? 404 : 400;
@@ -140,6 +145,9 @@ export function createDeviceRoutes(
     }
     if (multiTargetTracker) {
       multiTargetTracker.resetDevice(deviceId);
+    }
+    if (ptzDirectorService) {
+      ptzDirectorService.resetDevice(deviceId);
     }
     return res.status(200).json({
       success: true,
@@ -284,6 +292,104 @@ export function createDeviceRoutes(
       device_id: deviceId,
       zones: result.zones,
     });
+  });
+
+  /**
+   * GET /api/v1/devices/:device_id/studio
+   * Retrieve conference room layout, virtual cameras, director config, and live telemetry (Public / Viewer / Admin)
+   */
+  router.get('/devices/:device_id/studio', (req, res) => {
+    const deviceId = parseInt(req.params.device_id, 10);
+    if (isNaN(deviceId)) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_DEVICE_ID',
+          message: 'Device ID must be an integer',
+          status: 400,
+        },
+      });
+    }
+
+    const device = deviceService.getDevice(deviceId);
+    if (!device) {
+      return res.status(404).json({
+        error: {
+          code: 'DEVICE_NOT_FOUND',
+          message: `Device ${deviceId} not found`,
+          status: 404,
+        },
+      });
+    }
+
+    if (!ptzDirectorService) {
+      return res.status(500).json({
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'PTZ Director service not configured',
+          status: 500,
+        },
+      });
+    }
+
+    const studio = ptzDirectorService.getStudioConfig(deviceId);
+    return res.status(200).json(studio);
+  });
+
+  /**
+   * PUT /api/v1/devices/:device_id/studio
+   * Configure studio layout, cameras, director tuning, or live camera override (Admin only)
+   */
+  router.put('/devices/:device_id/studio', ...adminGuard, (req, res) => {
+    const deviceId = parseInt(req.params.device_id, 10);
+    if (isNaN(deviceId)) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_DEVICE_ID',
+          message: 'Device ID must be an integer',
+          status: 400,
+        },
+      });
+    }
+
+    const device = deviceService.getDevice(deviceId);
+    if (!device) {
+      return res.status(404).json({
+        error: {
+          code: 'DEVICE_NOT_FOUND',
+          message: `Device ${deviceId} not found`,
+          status: 404,
+        },
+      });
+    }
+
+    if (!ptzDirectorService) {
+      return res.status(500).json({
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'PTZ Director service not configured',
+          status: 500,
+        },
+      });
+    }
+
+    try {
+      const updated = ptzDirectorService.updateStudioConfig(deviceId, req.body || {});
+      // Broadcast studio_config SSE event to all connected clients
+      sseBroadcaster.broadcastStudioConfig(deviceId, updated);
+
+      return res.status(200).json({
+        success: true,
+        ...updated,
+      });
+    } catch (err) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_STUDIO_CONFIG',
+          message: err.message,
+          status: 400,
+        },
+      });
+    }
   });
 
   return router;

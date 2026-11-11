@@ -14,6 +14,7 @@ import { MeasurementService } from './utils/measurement_service.js';
 import { ClockFusionService } from './utils/clock_fusion_service.js';
 import { MultiTargetTracker } from './utils/multi_target_tracker.js';
 import { SpatialZoneService } from './utils/spatial_zone_service.js';
+import { PTZDirectorService } from './utils/ptz_director_service.js';
 import { AuthService } from './utils/auth_service.js';
 import { createAuthMiddleware } from './utils/auth_middleware.js';
 
@@ -39,6 +40,7 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   const clockFusionService = new ClockFusionService(db);
   const multiTargetTracker = new MultiTargetTracker();
   const spatialZoneService = new SpatialZoneService(db);
+  const ptzDirectorService = new PTZDirectorService(db);
   const authService = new AuthService(db);
   const authMiddleware = createAuthMiddleware(authService);
 
@@ -117,14 +119,15 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
         stats: '/api/v1/devices/:device_id/stats',
         config: '/api/v1/devices/:device_id/config',
         zones: '/api/v1/devices/:device_id/zones',
+        studio: '/api/v1/devices/:device_id/studio',
         auth: '/api/v1/auth/login',
         users: '/api/v1/users',
       },
     });
   });
 
-  apiRouter.use(createDeviceRoutes(deviceService, calibrationService, measurementService, authMiddleware, clockFusionService, multiTargetTracker, spatialZoneService));
-  apiRouter.use(createMeasurementRoutes(measurementService, deviceService, clockFusionService, multiTargetTracker));
+  apiRouter.use(createDeviceRoutes(deviceService, calibrationService, measurementService, authMiddleware, clockFusionService, multiTargetTracker, spatialZoneService, ptzDirectorService));
+  apiRouter.use(createMeasurementRoutes(measurementService, deviceService, clockFusionService, multiTargetTracker, ptzDirectorService, spatialZoneService));
   apiRouter.use(createConfigRoutes(calibrationService, authMiddleware));
   apiRouter.use(createSSERoutes());
   apiRouter.use('/auth', createAuthRoutes(authService, authMiddleware));
