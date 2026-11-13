@@ -144,7 +144,7 @@ paths:
               format: binary
       responses:
         '200':
-          description: Batch accepted, CRC32 verified, decoded, persisted, and broadcast to SSE clients
+          description: Batch accepted, CRC32 verified, decoded, persisted (even under degraded tracker/director failure), and broadcast to SSE clients
           content:
             application/json:
               schema:
@@ -155,14 +155,22 @@ paths:
                 device_id: 1
                 clock_source: "SNTP_UTC"
                 received_at: "2026-10-26T17:45:00.120Z"
+                active_tracks: 1
+                live_cam_id: "cam-front"
         '400':
-          description: Malformed binary payload (size mismatch, CRC32 failure, unknown version, count > 24)
+          description: Malformed binary payload (size mismatch, CRC32 failure, unknown version, count > 24, INVALID_BINARY_PAYLOAD)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
-          description: Unauthorized
+          description: Unauthorized (INVALID_API_KEY / MISSING_API_KEY)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Critical server or SQLite persistence failure (AUTH_SERVICE_ERROR, DATABASE_ERROR)
           content:
             application/json:
               schema:
@@ -172,9 +180,10 @@ paths:
     get:
       summary: Real-Time Acoustic Telemetry Stream (Server-Sent Events)
       description: >
-        Persistent HTTP stream delivering real-time decoded measurement events to the
-        web dashboard visualizer (Client 2). The browser connects using the native
-        EventSource API.
+        Persistent HTTP stream delivering real-time decoded measurement batches,
+        authoritative PTZ director snapshots, live studio configuration updates
+        (`studio_config`), and 15-second keep-alive heartbeats to the web dashboard
+        visualizer (Client 2). Pass `device_id=0` to subscribe to all registered devices.
       operationId: getDeviceEventStream
       tags:
         - Real-Time Streaming
@@ -182,20 +191,30 @@ paths:
         - name: device_id
           in: path
           required: true
-          description: Device ID to subscribe to
+          description: Positive integer Device ID, or `0` to subscribe to all devices
           schema:
             type: integer
+            minimum: 0
             example: 1
       responses:
         '200':
-          description: Continuous text/event-stream delivering measurement batches and heartbeats
+          description: Continuous text/event-stream delivering measurement_batch, studio_config, and heartbeat events
           content:
             text/event-stream:
               schema:
                 type: string
                 example: |
                   event: measurement_batch
-                  data: {"device_id":1,"clock_flags":1,"base_timestamp_ms":1791830000100,"records":[{"timestamp_ms":1791830000125,"angle_deg":42.5,"delay_us":82.1,"sound_level_db":68.4,"confidence":0.88}]}
+                  data: {"device_id":1,"clock_flags":1,"base_timestamp_ms":1791830000100,"records":[{"timestamp_ms":1791830000125,"angle_deg":42.5,"delay_us":82.1,"sound_level_db":68.4,"confidence":0.88}],"active_tracks":[],"director":{"liveCamId":"cam-front","cameras":[]}}
+
+                  event: studio_config
+                  data: {"deviceId":1,"liveCamId":"cam-front","cameras":[],"roomLayout":{},"directorConfig":{}}
+        '400':
+          description: Invalid device_id path parameter (INVALID_DEVICE_ID)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /devices/{device_id}/measurements/latest:
     get:
@@ -466,8 +485,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeviceSummary'
+        '400':
+          description: Invalid device payload (e.g. missing name)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: Forbidden (Admin role required)
+        '409':
+          description: Duplicate API key (DUPLICATE_API_KEY)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /devices/{device_id}:
     put:
@@ -1116,6 +1147,14 @@ components:
         received_at:
           type: string
           format: date-time
+        active_tracks:
+          type: integer
+          example: 1
+          description: Number of active multi-target tracks (0 if degraded mode skipped tracking)
+        live_cam_id:
+          type: string
+          example: "cam-front"
+          description: Currently live camera selected by the authoritative PTZ Director (omitted if director skipped)
 
     DeviceConfig:
       type: object
@@ -1318,7 +1357,7 @@ components:
       properties:
         tableShape:
           type: string
-          enum: [oval, round, ushape, hollow_square]
+          enum: [oval, round, ushape]
           example: oval
         tableWidthRatio:
           type: number
@@ -1331,6 +1370,8 @@ components:
           example: 8
         customChairs:
           type: array
+          nullable: true
+          description: Optional custom chair coordinates; pass null to reset back to automatic table perimeter seating
           items:
             type: object
             properties:
@@ -1423,6 +1464,9 @@ components:
           $ref: '#/components/schemas/RoomLayoutConfig'
         cameras:
           type: array
+          minItems: 1
+          maxItems: 3
+          description: Active virtual PTZ camera rig (1 to 3 cameras)
           items:
             $ref: '#/components/schemas/VirtualCamera'
         directorConfig:
@@ -1447,6 +1491,9 @@ components:
           $ref: '#/components/schemas/RoomLayoutConfig'
         cameras:
           type: array
+          minItems: 1
+          maxItems: 3
+          description: Replace configured camera rig (1 to 3 cameras required)
           items:
             $ref: '#/components/schemas/VirtualCamera'
         directorConfig:
@@ -1460,19 +1507,21 @@ components:
       properties:
         error:
           type: object
+          required:
+            - code
+            - message
+            - status
           properties:
             code:
               type: string
-              example: "VALIDATION_ERROR"
+              example: "INVALID_DEVICE_ID"
+              description: Machine-readable error code (e.g. INVALID_DEVICE_ID, INVALID_JSON, PAYLOAD_TOO_LARGE, INVALID_QUERY_PARAM, INVALID_BINARY_PAYLOAD, INVALID_STUDIO_CONFIG, DUPLICATE_API_KEY, DATABASE_ERROR)
             message:
               type: string
-              example: "Invalid sample_rate: must be 44100 or 48000"
+              example: "Device ID must be a positive integer"
             status:
               type: integer
               example: 400
-            details:
-              type: object
-              nullable: true
 
   securitySchemes:
     ApiKeyAuth:

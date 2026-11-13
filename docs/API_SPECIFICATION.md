@@ -27,20 +27,22 @@ All errors return a consistent structured JSON envelope:
 ```json
 {
   "error": {
-    "code": "INVALID_BATCH_SIZE",
-    "message": "Expected 172 bytes for count 8, received 160 bytes",
-    "status": 400,
-    "details": null
+    "code": "INVALID_DEVICE_ID",
+    "message": "Device ID must be a positive integer",
+    "status": 400
   }
 }
 ```
 
 Standard status codes:
-- `200 OK`: Request succeeded.
-- `400 Bad Request`: Validation failure, malformed binary buffer, or out-of-range parameters.
-- `401 Unauthorized`: Missing or invalid `x-api-key`.
-- `404 Not Found`: Unknown device ID or non-existent route.
-- `500 Internal Server Error`: Unhandled server exception.
+- `200 OK` / `201 Created`: Request succeeded.
+- `400 Bad Request`: Validation failure, malformed JSON (`INVALID_JSON`), invalid `:device_id` (`INVALID_DEVICE_ID`), invalid query filters (`INVALID_QUERY_PARAM`), malformed binary buffer (`INVALID_BINARY_PAYLOAD`), or invalid studio configuration (`INVALID_STUDIO_CONFIG`).
+- `401 Unauthorized`: Missing or invalid `x-api-key` or JWT Bearer token (`INVALID_TOKEN`).
+- `403 Forbidden`: Valid JWT missing required `admin` role.
+- `404 Not Found`: Unknown device/user ID or non-existent route.
+- `409 Conflict`: Duplicate resource conflict (e.g., `DUPLICATE_API_KEY` or duplicate user).
+- `413 Payload Too Large`: JSON body exceeds Express size limit (`PAYLOAD_TOO_LARGE`).
+- `500 Internal Server Error`: Unexpected server or SQLite persistence failure (`DATABASE_ERROR`, `AUTH_SERVICE_ERROR`, `INTERNAL_SERVER_ERROR` — preserves `err.message` in JSON for diagnostics).
 
 ---
 
@@ -79,6 +81,7 @@ Standard status codes:
   - `x-api-key: <key>`
   - `Content-Type: application/octet-stream`
 - **Request Body:** Binary Little-Endian payload: 12-byte header + $N \times 20$ bytes records ($1 \le N \le 24$).
+- **Fault Isolation:** Non-critical enrichment steps (clock fusion, Multi-Target Tracker, PTZ Director, and SSE broadcasting) run inside isolated `try/catch` boundaries so raw acoustic telemetry is still persisted to SQLite (`200 OK`) if an enrichment stage throws.
 - **Response `200 OK`:**
   ```json
   {
@@ -86,7 +89,9 @@ Standard status codes:
     "accepted": 12,
     "device_id": 1,
     "clock_source": "SNTP_UTC",
-    "received_at": "2026-10-26T17:45:00.120Z"
+    "received_at": "2026-10-26T17:45:00.120Z",
+    "active_tracks": 1,
+    "live_cam_id": "cam-front"
   }
   ```
 
@@ -95,9 +100,9 @@ Standard status codes:
 ## 4. Web Dashboard & Management Endpoints
 
 ### 4.1 Real-Time Server-Sent Events (SSE) Stream
-- **Method & Route:** `GET /devices/{device_id}/stream`
+- **Method & Route:** `GET /devices/{device_id}/stream` (Pass `device_id=0` to subscribe across all devices)
 - **Headers:** `Accept: text/event-stream`
-- **Description:** Live push stream delivering acoustic detection frames to the browser canvas radar.
+- **Description:** Live push stream delivering acoustic detection frames, active multi-target tracks, authoritative PTZ camera director state, and live studio configuration changes (`studio_config`) to the browser visualizer.
 - **SSE Stream Protocol:**
   ```http
   HTTP/1.1 200 OK
@@ -106,7 +111,10 @@ Standard status codes:
   Connection: keep-alive
 
   event: measurement_batch
-  data: {"device_id":1,"clock_flags":1,"base_timestamp_ms":1791830000100,"records":[{"timestamp_ms":1791830000125,"angle_deg":42.5,"delay_us":82.1,"sound_level_db":68.4,"confidence":0.88}]}
+  data: {"device_id":1,"clock_flags":1,"base_timestamp_ms":1791830000100,"records":[{"timestamp_ms":1791830000125,"angle_deg":42.5,"delay_us":82.1,"sound_level_db":68.4,"confidence":0.88}],"active_tracks":[],"director":{"liveCamId":"cam-front","cameras":[]}}
+
+  event: studio_config
+  data: {"deviceId":1,"liveCamId":"cam-front","cameras":[],"roomLayout":{},"directorConfig":{}}
 
   event: heartbeat
   data: {"server_time_unix_ms":1791830015000}
@@ -159,8 +167,8 @@ Standard status codes:
 ---
 
 ### 4.4 Get & Update Device Configuration
-- **Method & Route:** `GET /devices/{device_id}/config`
-- **Method & Route:** `PUT /devices/{device_id}/config`
+- **Method & Route:** `GET /devices/{device_id}/config` (Public)
+- **Method & Route:** `PUT /devices/{device_id}/config` (Admin JWT required: `Authorization: Bearer <token>`)
 - **Request Body (PUT):**
   ```json
   {
@@ -171,14 +179,17 @@ Standard status codes:
     "db_spl_offset": 100.0,
     "angle_offset_deg": 3.5,
     "adaptive_threshold_enabled": true,
-    "snr_margin_db": 9.0
+    "snr_margin_db": 9.0,
+    "sector_width_deg": 15.0,
+    "sector_hysteresis_deg": 3.0,
+    "tracker_hold_timeout_ms": 2500
   }
   ```
 
 ---
 
 ### 4.5 Trigger Zero-Angle Calibration
-- **Method & Route:** `POST /devices/{device_id}/calibrate/zero-angle`
+- **Method & Route:** `POST /devices/{device_id}/calibrate/zero-angle` (Admin JWT required)
 - **Request Body:** `{ "sample_count": 20 }`
 - **Description:** Computes the circular mean azimuth of the last 20 detections and sets `angle_offset_deg` so that the primary sound source centers at $0^\circ$.
 - **Response `200 OK`:**
@@ -208,6 +219,45 @@ Standard status codes:
     ]
   }
   ```
+
+---
+
+### 4.7 Get Active Multi-Target Tracks
+- **Method & Route:** `GET /devices/{device_id}/tracks`
+- **Description:** Returns currently active and coasting circular-Kalman speaker tracks maintained by `MultiTargetTracker`.
+- **Response `200 OK`:**
+  ```json
+  {
+    "device_id": 1,
+    "track_count": 1,
+    "tracks": [
+      {
+        "trackId": 3,
+        "trackSlot": 0,
+        "state": "ACTIVE",
+        "angleDeg": 12.4,
+        "soundLevelDb": 71.2,
+        "confidence": 0.91
+      }
+    ]
+  }
+  ```
+
+---
+
+### 4.8 Spatial Geofenced Zones
+- **Method & Route:** `GET /devices/{device_id}/zones` (Public)
+- **Method & Route:** `PUT /devices/{device_id}/zones` (Admin JWT required)
+- **Description:** Retrieves or atomically replaces spatial room sectors (`Podium`, `Main Table`, `Priority`, `Ignore`, `Mute` / `Zone`, supporting circular wrap-around across $\pm 180^\circ$).
+
+---
+
+### 4.9 Studio Layout & PTZ Director Config
+- **Method & Route:** `GET /devices/{device_id}/studio` (Public)
+- **Method & Route:** `PUT /devices/{device_id}/studio` (Admin JWT required)
+- **Description:** Retrieves or updates the persistent conference studio configuration and authoritative PTZ director state (`roomLayout`, `1–3` virtual `cameras`, `directorConfig`, `liveCamId`, and optional `reset: true`).
+  - `roomLayout`: `tableShape` (`oval`, `round`, `ushape`), dimensions, `seatCount`, and optional `customChairs` (pass `null` to reset to perimeter seating).
+  - `cameras`: Enforces $1 \le \text{cameras.length} \le 3$; updates are broadcast immediately via SSE (`event: studio_config`).
 
 ---
 
@@ -247,9 +297,10 @@ All node modification and provisioning endpoints require authentication with the
     "api_key": "custom-key-optional"
   }
   ```
-- **Description:** Provisions a new device record, initializes its default acoustic calibration profile, and auto-generates a secure 32-character API key if not specified.
+- **Description:** Provisions a new device record, initializes its default acoustic calibration profile, and auto-generates a secure 32-character API key if not specified. Returns `409 Conflict` (`DUPLICATE_API_KEY`) if the key already exists.
 
-### 5.3 Rotate Node API Key
+### 5.3 Update or Rotate Node API Key
+- **Method & Route:** `PUT /devices/{device_id}` — Rename device or rotate settings.
 - **Method & Route:** `POST /devices/{device_id}/api-key/rotate`
 - **Headers:** `Authorization: Bearer <token>` (Admin required)
 - **Response `200 OK`:**
@@ -265,7 +316,7 @@ All node modification and provisioning endpoints require authentication with the
 ### 5.4 Decommission Hardware Node
 - **Method & Route:** `DELETE /devices/{device_id}`
 - **Headers:** `Authorization: Bearer <token>` (Admin required)
-- **Description:** Deletes the device record, cascades deletion to its calibration settings and measurements, and resets its in-memory clock tracker.
+- **Description:** Deletes the device record, cascades deletion to its calibration settings, spatial zones, studio config, and measurements, and resets its in-memory clock tracker. Rejects deletion (`400`) of the sole remaining device.
 
 ### 5.5 Safe Historical Data Purge
 - **Method & Route:** `DELETE /devices/{device_id}/measurements`
@@ -287,7 +338,7 @@ All node modification and provisioning endpoints require authentication with the
   ```json
   {
     "device_id": 1,
-    "count": 14205
+    "total": 14205
   }
   ```
 
@@ -312,4 +363,5 @@ All node modification and provisioning endpoints require authentication with the
 ### 6.4 User Role Management (Admin only)
 - **Method & Route:** `GET /users` — List all registered platform users.
 - **Method & Route:** `PUT /users/{id}/role` — Promote or demote user role (`admin` or `viewer`).
+- **Method & Route:** `DELETE /users/{id}` — Remove a user account (cannot delete your own active admin account).
 
