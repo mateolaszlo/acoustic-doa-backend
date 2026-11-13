@@ -56,32 +56,36 @@ const certCrtPath = path.resolve(__dirname, '../certs/server.cert');
 const isHttpsDisabled = process.env.DISABLE_HTTPS === 'true' || process.env.ENABLE_HTTPS === 'false';
 
 if (!isHttpsDisabled && fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)) {
-  const httpsOptions = {
-    key: fs.readFileSync(certKeyPath),
-    cert: fs.readFileSync(certCrtPath),
-  };
+  try {
+    const httpsOptions = {
+      key: fs.readFileSync(certKeyPath),
+      cert: fs.readFileSync(certCrtPath),
+    };
 
-  const httpsServer = https.createServer(httpsOptions, app);
+    const httpsServer = https.createServer(httpsOptions, app);
 
-  httpsServer.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`\n[FATAL] HTTPS Port ${HTTPS_PORT} is already in use! Change PORT_HTTPS in .env.\n`);
-      process.exit(1);
-    }
-    if (err.code === 'EACCES') {
-      console.warn(`\n[WARN] Could not bind to HTTPS port ${HTTPS_PORT} (EACCES: permission denied).`);
-      console.warn(`[HINT] On Windows, port ${HTTPS_PORT} is commonly excluded by Hyper-V/WSL port ranges.`);
-      console.warn(`[HINT] Set PORT_HTTPS=8443 or DISABLE_HTTPS=true in .env to resolve this.`);
-      console.warn(`[INFO] Server is continuing in HTTP mode on port ${HTTP_PORT}.\n`);
-      return;
-    }
-    throw err;
-  });
+    httpsServer.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`\n[FATAL] HTTPS Port ${HTTPS_PORT} is already in use! Change PORT_HTTPS in .env.\n`);
+        process.exit(1);
+      }
+      if (err.code === 'EACCES') {
+        console.warn(`\n[WARN] Could not bind to HTTPS port ${HTTPS_PORT} (EACCES: permission denied).`);
+        console.warn(`[HINT] On Windows, port ${HTTPS_PORT} is commonly excluded by Hyper-V/WSL port ranges.`);
+        console.warn(`[HINT] Set PORT_HTTPS=8443 or DISABLE_HTTPS=true in .env to resolve this.`);
+        console.warn(`[INFO] Server is continuing in HTTP mode on port ${HTTP_PORT}.\n`);
+        return;
+      }
+      console.error('[HTTPS Server Error]', err);
+    });
 
-  httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
-    console.log(`[HTTPS] Secure Client Gateway listening on https://0.0.0.0:${HTTPS_PORT}`);
-    console.log(`[HTTPS] Real-time SSE stream: https://localhost:${HTTPS_PORT}/api/v1/devices/1/stream`);
-  });
+    httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
+      console.log(`[HTTPS] Secure Client Gateway listening on https://0.0.0.0:${HTTPS_PORT}`);
+      console.log(`[HTTPS] Real-time SSE stream: https://localhost:${HTTPS_PORT}/api/v1/devices/1/stream`);
+    });
+  } catch (err) {
+    console.warn(`[WARN] Failed to load TLS certificates (${err.message}); continuing in HTTP-only mode.`);
+  }
 } else if (isHttpsDisabled) {
   console.log('[HTTPS] HTTPS disabled via configuration (DISABLE_HTTPS=true); running in HTTP-only mode.');
 } else {
@@ -100,3 +104,9 @@ function handleShutdown(signal) {
 
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('unhandledRejection', (reason) => {
+  console.error('[Process Error] Unhandled Promise Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Process Error] Uncaught Exception:', err);
+});

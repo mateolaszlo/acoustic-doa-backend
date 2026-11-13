@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { sendError, handleUnexpectedRouteError } from '../utils/http_errors.js';
 
 export function createAuthRoutes(authService, authMiddleware) {
   const router = Router();
@@ -20,13 +21,10 @@ export function createAuthRoutes(authService, authMiddleware) {
         token,
       });
     } catch (err) {
-      return res.status(400).json({
-        error: {
-          code: 'REGISTRATION_FAILED',
-          message: err.message,
-          status: 400,
-        },
-      });
+      if (err?.code?.startsWith?.('SQLITE_') && err.code !== 'SQLITE_CONSTRAINT_UNIQUE') {
+        return handleUnexpectedRouteError(res, err, 'Auth:Register', 'REGISTRATION_FAILED');
+      }
+      return sendError(res, 400, 'REGISTRATION_FAILED', err?.message || 'Registration failed');
     }
   });
 
@@ -45,13 +43,10 @@ export function createAuthRoutes(authService, authMiddleware) {
         token: result.token,
       });
     } catch (err) {
-      return res.status(401).json({
-        error: {
-          code: 'AUTH_FAILED',
-          message: err.message,
-          status: 401,
-        },
-      });
+      if (err?.code?.startsWith?.('SQLITE_')) {
+        return handleUnexpectedRouteError(res, err, 'Auth:Login', 'AUTH_FAILED');
+      }
+      return sendError(res, 401, 'AUTH_FAILED', err?.message || 'Authentication failed');
     }
   });
 
@@ -60,18 +55,20 @@ export function createAuthRoutes(authService, authMiddleware) {
    * Return the active authenticated session profile
    */
   router.get('/me', authenticateJWT, (req, res) => {
-    const user = authService.getUserById(req.user.id);
-    if (!user) {
-      return res.status(404).json({
-        error: {
-          code: 'USER_NOT_FOUND',
-          message: 'Authenticated user no longer exists',
-          status: 404,
-        },
-      });
-    }
+    try {
+      if (!req.user || !req.user.id) {
+        return sendError(res, 401, 'UNAUTHORIZED', 'Invalid session context');
+      }
 
-    return res.status(200).json({ user });
+      const user = authService.getUserById(req.user.id);
+      if (!user) {
+        return sendError(res, 404, 'USER_NOT_FOUND', 'Authenticated user no longer exists');
+      }
+
+      return res.status(200).json({ user });
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Auth:Me', 'PROFILE_FETCH_FAILED');
+    }
   });
 
   return router;

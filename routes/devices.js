@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { sseBroadcaster } from '../utils/sse_broadcaster.js';
+import { sendError, parseDeviceId, handleUnexpectedRouteError } from '../utils/http_errors.js';
 
 export function createDeviceRoutes(
   deviceService,
@@ -18,18 +19,37 @@ export function createDeviceRoutes(
 
   const optionalAuth = authMiddleware?.optionalJWT || ((_req, _res, next) => next());
 
+  function requireDevice(res, rawDeviceId) {
+    const deviceId = parseDeviceId(rawDeviceId);
+    if (deviceId === null) {
+      sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be an integer');
+      return null;
+    }
+
+    const device = deviceService.getDevice(deviceId);
+    if (!device) {
+      sendError(res, 404, 'DEVICE_NOT_FOUND', `Device ${deviceId} not found`);
+      return null;
+    }
+
+    return { deviceId, device };
+  }
+
   /**
    * GET /api/v1/devices
    * List all registered devices (returns full admin details with api_key if authenticated as admin)
    */
   router.get('/devices', optionalAuth, (req, res) => {
-    const isAdmin = Boolean(req.user && req.user.role === 'admin');
+    try {
+      const isAdmin = Boolean(req.user && req.user.role === 'admin');
+      const devices = isAdmin
+        ? deviceService.listDevicesAdmin()
+        : deviceService.listDevices();
 
-    const devices = isAdmin
-      ? deviceService.listDevicesAdmin()
-      : deviceService.listDevices();
-
-    return res.status(200).json(devices);
+      return res.status(200).json(devices);
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Devices:List', 'DEVICE_LIST_FAILED');
+    }
   });
 
   /**
@@ -41,13 +61,13 @@ export function createDeviceRoutes(
       const device = deviceService.createDevice(req.body || {});
       return res.status(201).json(device);
     } catch (err) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_REQUEST',
-          message: err.message,
-          status: 400,
-        },
-      });
+      if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        return sendError(res, 409, 'DUPLICATE_API_KEY', 'A device with that API key already exists');
+      }
+      if (err?.message?.includes('required')) {
+        return sendError(res, 400, 'INVALID_REQUEST', err.message);
+      }
+      return handleUnexpectedRouteError(res, err, 'Devices:Create', 'INVALID_REQUEST');
     }
   });
 
@@ -56,19 +76,22 @@ export function createDeviceRoutes(
    * Update node metadata / rename (Admin only)
    */
   router.put('/devices/:device_id', ...adminGuard, (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null) {
+      return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be an integer');
+    }
+
     try {
       const device = deviceService.updateDevice(deviceId, req.body || {});
       return res.status(200).json(device);
     } catch (err) {
-      const status = err.message.includes('not found') ? 404 : 400;
-      return res.status(status).json({
-        error: {
-          code: status === 404 ? 'DEVICE_NOT_FOUND' : 'INVALID_REQUEST',
-          message: err.message,
-          status,
-        },
-      });
+      if (err?.message?.includes('not found')) {
+        return sendError(res, 404, 'DEVICE_NOT_FOUND', err.message);
+      }
+      if (err?.message?.includes('required')) {
+        return sendError(res, 400, 'INVALID_REQUEST', err.message);
+      }
+      return handleUnexpectedRouteError(res, err, 'Devices:Update', 'DEVICE_UPDATE_FAILED');
     }
   });
 
@@ -77,19 +100,19 @@ export function createDeviceRoutes(
    * Generate and assign a new API key to the node (Admin only)
    */
   router.post('/devices/:device_id/api-key/rotate', ...adminGuard, (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null) {
+      return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be an integer');
+    }
+
     try {
       const result = deviceService.rotateApiKey(deviceId);
       return res.status(200).json(result);
     } catch (err) {
-      const status = err.message.includes('not found') ? 404 : 400;
-      return res.status(status).json({
-        error: {
-          code: status === 404 ? 'DEVICE_NOT_FOUND' : 'ROTATE_KEY_FAILED',
-          message: err.message,
-          status,
-        },
-      });
+      if (err?.message?.includes('not found')) {
+        return sendError(res, 404, 'DEVICE_NOT_FOUND', err.message);
+      }
+      return handleUnexpectedRouteError(res, err, 'Devices:RotateKey', 'ROTATE_KEY_FAILED');
     }
   });
 
@@ -98,7 +121,11 @@ export function createDeviceRoutes(
    * Decommission and delete a node (Admin only)
    */
   router.delete('/devices/:device_id', ...adminGuard, (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null) {
+      return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be an integer');
+    }
+
     try {
       const result = deviceService.deleteDevice(deviceId);
       if (clockFusionService) {
@@ -112,14 +139,13 @@ export function createDeviceRoutes(
       }
       return res.status(200).json(result);
     } catch (err) {
-      const status = err.message.includes('not found') ? 404 : 400;
-      return res.status(status).json({
-        error: {
-          code: status === 404 ? 'DEVICE_NOT_FOUND' : 'DELETE_FAILED',
-          message: err.message,
-          status,
-        },
-      });
+      if (err?.message?.includes('not found')) {
+        return sendError(res, 404, 'DEVICE_NOT_FOUND', err.message);
+      }
+      if (err?.message?.includes('only remaining')) {
+        return sendError(res, 400, 'DELETE_FAILED', err.message);
+      }
+      return handleUnexpectedRouteError(res, err, 'Devices:Delete', 'DELETE_FAILED');
     }
   });
 
@@ -128,33 +154,35 @@ export function createDeviceRoutes(
    * Purge historical measurements for a specific node (Admin only)
    */
   router.delete('/devices/:device_id/measurements', ...adminGuard, (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    if (!measurementService) {
-      return res.status(500).json({
-        error: {
-          code: 'SERVICE_UNAVAILABLE',
-          message: 'Measurement service not configured',
-          status: 500,
-        },
-      });
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null) {
+      return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be an integer');
     }
 
-    const result = measurementService.clearDeviceMeasurements(deviceId);
-    if (clockFusionService) {
-      clockFusionService.resetTracker(deviceId);
+    if (!measurementService) {
+      return sendError(res, 500, 'SERVICE_UNAVAILABLE', 'Measurement service not configured');
     }
-    if (multiTargetTracker) {
-      multiTargetTracker.resetDevice(deviceId);
+
+    try {
+      const result = measurementService.clearDeviceMeasurements(deviceId);
+      if (clockFusionService) {
+        clockFusionService.resetTracker(deviceId);
+      }
+      if (multiTargetTracker) {
+        multiTargetTracker.resetDevice(deviceId);
+      }
+      if (ptzDirectorService) {
+        ptzDirectorService.resetDevice(deviceId);
+      }
+      return res.status(200).json({
+        success: true,
+        device_id: deviceId,
+        deleted_records: result.deleted,
+        message: `Successfully purged ${result.deleted} measurements for device ${deviceId}`,
+      });
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Devices:PurgeMeasurements', 'PURGE_FAILED');
     }
-    if (ptzDirectorService) {
-      ptzDirectorService.resetDevice(deviceId);
-    }
-    return res.status(200).json({
-      success: true,
-      device_id: deviceId,
-      deleted_records: result.deleted,
-      message: `Successfully purged ${result.deleted} measurements for device ${deviceId}`,
-    });
   });
 
   /**
@@ -162,45 +190,39 @@ export function createDeviceRoutes(
    * Polled by ESP32 at boot and periodically (every 60s)
    */
   router.get('/devices/:device_id/calibration', (req, res) => {
-    const apiKey = req.headers['x-api-key'] || '';
-    const auth = deviceService.authenticateDevice(apiKey);
+    let auth;
+    try {
+      const apiKey = req.headers['x-api-key'] || '';
+      auth = deviceService.authenticateDevice(apiKey);
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Devices:CalibrationAuth', 'AUTH_SERVICE_ERROR');
+    }
 
     if (!auth) {
-      return res.status(401).json({
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Invalid or missing x-api-key',
-          status: 401,
-        },
-      });
+      return sendError(res, 401, 'UNAUTHORIZED', 'Invalid or missing x-api-key');
     }
 
-    const deviceId = parseInt(req.params.device_id, 10);
-    if (isNaN(deviceId) || deviceId !== auth.id) {
-      return res.status(403).json({
-        error: {
-          code: 'FORBIDDEN',
-          message: `API key is not authorized for device ${deviceId}`,
-          status: 403,
-        },
-      });
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null || deviceId !== auth.id) {
+      return sendError(
+        res,
+        403,
+        'FORBIDDEN',
+        `API key is not authorized for device ${req.params.device_id}`
+      );
     }
 
-    const calib = calibrationService.getCalibration(deviceId);
-    if (!calib) {
-      return res.status(404).json({
-        error: {
-          code: 'DEVICE_NOT_FOUND',
-          message: `Calibration profile for device ${deviceId} not found`,
-          status: 404,
-        },
-      });
+    try {
+      const calib = calibrationService.getCalibration(deviceId);
+      if (!calib) {
+        return sendError(res, 404, 'DEVICE_NOT_FOUND', `Calibration profile for device ${deviceId} not found`);
+      }
+
+      deviceService.updateDeviceHeartbeat(deviceId, 'SERVER_UTC');
+      return res.status(200).json(calib);
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Devices:CalibrationFetch', 'CALIBRATION_FETCH_FAILED');
     }
-
-    // Update heartbeat
-    deviceService.updateDeviceHeartbeat(deviceId, 'SERVER_UTC');
-
-    return res.status(200).json(calib);
   });
 
   /**
@@ -208,34 +230,19 @@ export function createDeviceRoutes(
    * Retrieve spatial zones / acoustic geofences for this device (Public / Viewer / Admin)
    */
   router.get('/devices/:device_id/zones', (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    if (isNaN(deviceId)) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_DEVICE_ID',
-          message: 'Device ID must be an integer',
-          status: 400,
-        },
-      });
-    }
+    try {
+      const resolved = requireDevice(res, req.params.device_id);
+      if (!resolved) return;
 
-    const device = deviceService.getDevice(deviceId);
-    if (!device) {
-      return res.status(404).json({
-        error: {
-          code: 'DEVICE_NOT_FOUND',
-          message: `Device ${deviceId} not found`,
-          status: 404,
-        },
-      });
-    }
+      if (!spatialZoneService) {
+        return res.status(200).json([]);
+      }
 
-    if (!spatialZoneService) {
-      return res.status(200).json([]);
+      const zones = spatialZoneService.getZones(resolved.deviceId);
+      return res.status(200).json(zones);
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Devices:GetZones', 'ZONES_FETCH_FAILED');
     }
-
-    const zones = spatialZoneService.getZones(deviceId);
-    return res.status(200).json(zones);
   });
 
   /**
@@ -243,55 +250,28 @@ export function createDeviceRoutes(
    * Configure spatial zones for this device (Admin only)
    */
   router.put('/devices/:device_id/zones', ...adminGuard, (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    if (isNaN(deviceId)) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_DEVICE_ID',
-          message: 'Device ID must be an integer',
-          status: 400,
-        },
-      });
-    }
+    try {
+      const resolved = requireDevice(res, req.params.device_id);
+      if (!resolved) return;
 
-    const device = deviceService.getDevice(deviceId);
-    if (!device) {
-      return res.status(404).json({
-        error: {
-          code: 'DEVICE_NOT_FOUND',
-          message: `Device ${deviceId} not found`,
-          status: 404,
-        },
-      });
-    }
+      if (!spatialZoneService) {
+        return sendError(res, 500, 'SERVICE_UNAVAILABLE', 'Spatial zone service not configured');
+      }
 
-    if (!spatialZoneService) {
-      return res.status(500).json({
-        error: {
-          code: 'SERVICE_UNAVAILABLE',
-          message: 'Spatial zone service not configured',
-          status: 500,
-        },
-      });
-    }
+      const zonesPayload = Array.isArray(req.body) ? req.body : (req.body?.zones || []);
+      const result = spatialZoneService.updateZones(resolved.deviceId, zonesPayload);
+      if (!result.success) {
+        return sendError(res, 400, 'INVALID_ZONE_CONFIG', result.error);
+      }
 
-    const zonesPayload = Array.isArray(req.body) ? req.body : (req.body?.zones || []);
-    const result = spatialZoneService.updateZones(deviceId, zonesPayload);
-    if (!result.success) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_ZONE_CONFIG',
-          message: result.error,
-          status: 400,
-        },
+      return res.status(200).json({
+        success: true,
+        device_id: resolved.deviceId,
+        zones: result.zones,
       });
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Devices:UpdateZones', 'ZONES_UPDATE_FAILED');
     }
-
-    return res.status(200).json({
-      success: true,
-      device_id: deviceId,
-      zones: result.zones,
-    });
   });
 
   /**
@@ -299,40 +279,19 @@ export function createDeviceRoutes(
    * Retrieve conference room layout, virtual cameras, director config, and live telemetry (Public / Viewer / Admin)
    */
   router.get('/devices/:device_id/studio', (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    if (isNaN(deviceId)) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_DEVICE_ID',
-          message: 'Device ID must be an integer',
-          status: 400,
-        },
-      });
-    }
+    try {
+      const resolved = requireDevice(res, req.params.device_id);
+      if (!resolved) return;
 
-    const device = deviceService.getDevice(deviceId);
-    if (!device) {
-      return res.status(404).json({
-        error: {
-          code: 'DEVICE_NOT_FOUND',
-          message: `Device ${deviceId} not found`,
-          status: 404,
-        },
-      });
-    }
+      if (!ptzDirectorService) {
+        return sendError(res, 500, 'SERVICE_UNAVAILABLE', 'PTZ Director service not configured');
+      }
 
-    if (!ptzDirectorService) {
-      return res.status(500).json({
-        error: {
-          code: 'SERVICE_UNAVAILABLE',
-          message: 'PTZ Director service not configured',
-          status: 500,
-        },
-      });
+      const studio = ptzDirectorService.getStudioConfig(resolved.deviceId);
+      return res.status(200).json(studio);
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Devices:GetStudio', 'STUDIO_FETCH_FAILED');
     }
-
-    const studio = ptzDirectorService.getStudioConfig(deviceId);
-    return res.status(200).json(studio);
   });
 
   /**
@@ -340,55 +299,32 @@ export function createDeviceRoutes(
    * Configure studio layout, cameras, director tuning, or live camera override (Admin only)
    */
   router.put('/devices/:device_id/studio', ...adminGuard, (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    if (isNaN(deviceId)) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_DEVICE_ID',
-          message: 'Device ID must be an integer',
-          status: 400,
-        },
-      });
-    }
-
-    const device = deviceService.getDevice(deviceId);
-    if (!device) {
-      return res.status(404).json({
-        error: {
-          code: 'DEVICE_NOT_FOUND',
-          message: `Device ${deviceId} not found`,
-          status: 404,
-        },
-      });
-    }
-
-    if (!ptzDirectorService) {
-      return res.status(500).json({
-        error: {
-          code: 'SERVICE_UNAVAILABLE',
-          message: 'PTZ Director service not configured',
-          status: 500,
-        },
-      });
-    }
-
     try {
-      const updated = ptzDirectorService.updateStudioConfig(deviceId, req.body || {});
-      // Broadcast studio_config SSE event to all connected clients
-      sseBroadcaster.broadcastStudioConfig(deviceId, updated);
+      const resolved = requireDevice(res, req.params.device_id);
+      if (!resolved) return;
+
+      if (!ptzDirectorService) {
+        return sendError(res, 500, 'SERVICE_UNAVAILABLE', 'PTZ Director service not configured');
+      }
+
+      const updated = ptzDirectorService.updateStudioConfig(resolved.deviceId, req.body || {});
+
+      // Broadcast studio_config SSE event to all connected clients (non-fatal after DB commit)
+      try {
+        sseBroadcaster.broadcastStudioConfig(resolved.deviceId, updated);
+      } catch (sseErr) {
+        console.error(`[Devices:PutStudio] Failed to broadcast studio_config:`, sseErr);
+      }
 
       return res.status(200).json({
         success: true,
         ...updated,
       });
     } catch (err) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_STUDIO_CONFIG',
-          message: err.message,
-          status: 400,
-        },
-      });
+      if (err?.code?.startsWith?.('SQLITE_')) {
+        return handleUnexpectedRouteError(res, err, 'Devices:PutStudio', 'DATABASE_ERROR');
+      }
+      return sendError(res, 400, 'INVALID_STUDIO_CONFIG', err?.message || 'Invalid studio configuration');
     }
   });
 

@@ -16,7 +16,19 @@ export function createAuthMiddleware(authService) {
     }
 
     const token = authHeader.slice(7).trim();
-    const decoded = authService.verifyToken(token);
+    let decoded = null;
+    try {
+      decoded = authService.verifyToken(token);
+    } catch (err) {
+      console.error('[AuthMiddleware] Token verification error:', err);
+      return res.status(401).json({
+        error: {
+          code: 'INVALID_TOKEN',
+          message: 'Provided JWT token is invalid or has expired',
+          status: 401,
+        },
+      });
+    }
 
     if (!decoded) {
       return res.status(401).json({
@@ -62,9 +74,13 @@ export function createAuthMiddleware(authService) {
     const authHeader = req.headers['authorization'];
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.slice(7).trim();
-      const decoded = authService.verifyToken(token);
-      if (decoded) {
-        req.user = decoded;
+      try {
+        const decoded = authService.verifyToken(token);
+        if (decoded) {
+          req.user = decoded;
+        }
+      } catch (err) {
+        console.warn('[AuthMiddleware] Optional JWT verification failed:', err.message);
       }
     }
     next();

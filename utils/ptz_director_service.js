@@ -8,6 +8,8 @@
  * 4. Perspective & proximity camera scoring with sticky subject memory.
  */
 
+import { safeJsonParse } from './http_errors.js';
+
 export const BASE_ROOM_WIDTH = 850;
 export const BASE_ROOM_HEIGHT = 470;
 export const BASE_ROOM_CENTER_X = 425; // 850 / 2
@@ -518,9 +520,21 @@ export class PTZDirectorService {
       row = this.db.prepare('SELECT * FROM device_studio_config WHERE device_id = ?').get(deviceId);
     }
 
-    const roomLayout = JSON.parse(row.room_layout_json);
-    const storedCameras = JSON.parse(row.cameras_json);
-    const directorConfig = JSON.parse(row.director_config_json);
+    const parsedLayout = safeJsonParse(row.room_layout_json, DEFAULT_ROOM_LAYOUT, 'PTZDirector');
+    const roomLayout = parsedLayout && typeof parsedLayout === 'object' ? parsedLayout : { ...DEFAULT_ROOM_LAYOUT };
+
+    const parsedCameras = safeJsonParse(row.cameras_json, DEFAULT_VIRTUAL_CAMERAS, 'PTZDirector');
+    const storedCameras =
+      Array.isArray(parsedCameras) && parsedCameras.length > 0
+        ? parsedCameras
+        : JSON.parse(JSON.stringify(DEFAULT_VIRTUAL_CAMERAS));
+
+    const parsedDirectorConfig = safeJsonParse(row.director_config_json, DEFAULT_DIRECTOR_CONFIG, 'PTZDirector');
+    const directorConfig =
+      parsedDirectorConfig && typeof parsedDirectorConfig === 'object'
+        ? parsedDirectorConfig
+        : { ...DEFAULT_DIRECTOR_CONFIG };
+
     const runtime = this._getOrCreateDeviceRuntimeState(deviceId);
 
     // Merge runtime live state into cameras
@@ -708,9 +722,15 @@ export class PTZDirectorService {
     }
 
     // 1. Identify active speaker targets (including coasting tracks during speech pauses)
+    const safeTracks = Array.isArray(activeTracks) ? activeTracks : [];
+    const safeRecords = Array.isArray(records) ? records : [];
     const speakerTargets = [];
-    const activeSlots = activeTracks.filter(
-      (t) => (t.state === 'ACTIVE' || t.state === 'COASTING') && (t.trackSlot === 0 || t.trackSlot === 1)
+    const activeSlots = safeTracks.filter(
+      (t) =>
+        t &&
+        typeof t.angleDeg === 'number' &&
+        (t.state === 'ACTIVE' || t.state === 'COASTING') &&
+        (t.trackSlot === 0 || t.trackSlot === 1)
     );
 
     let resolvedZoneName = 'Unassigned';
@@ -738,10 +758,12 @@ export class PTZDirectorService {
 
     // Fallback: If no tracks active or coasting, check recent fresh raw records (< 500ms)
     // IMPORTANT: Exclude LEAVE events (eventType === 4), DELETED records, and zero-source events!
-    if (speakerTargets.length === 0 && records.length > 0) {
-      const validRecords = records
+    if (speakerTargets.length === 0 && safeRecords.length > 0) {
+      const validRecords = safeRecords
         .filter(
           (r) =>
+            r &&
+            typeof r.angleDeg === 'number' &&
             r.soundLevelDb >= 50.0 &&
             nowMs - r.timestampMs < 500 &&
             r.eventType !== 4 &&

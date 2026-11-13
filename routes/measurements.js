@@ -1,6 +1,19 @@
 import { Router } from 'express';
 import { parseBinaryBatch } from '../utils/binary_parser.js';
 import { sseBroadcaster } from '../utils/sse_broadcaster.js';
+import { sendError, parseDeviceId, handleUnexpectedRouteError } from '../utils/http_errors.js';
+
+function parseOptionalInt(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : undefined;
+}
+
+function parseOptionalFloat(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
 
 export function createMeasurementRoutes(
   measurementService,
@@ -17,88 +30,110 @@ export function createMeasurementRoutes(
    * Upload binary batch from ESP32
    */
   router.post('/measurements', (req, res) => {
-    const apiKey = req.headers['x-api-key'] || '';
-    const auth = deviceService.authenticateDevice(apiKey);
+    let auth;
+    try {
+      const apiKey = req.headers['x-api-key'] || '';
+      auth = deviceService.authenticateDevice(apiKey);
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Measurements:Auth', 'AUTH_SERVICE_ERROR');
+    }
 
     if (!auth) {
-      return res.status(401).json({
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Invalid or missing x-api-key',
-          status: 401,
-        },
-      });
+      return sendError(res, 401, 'UNAUTHORIZED', 'Invalid or missing x-api-key');
     }
 
     const buffer = req.body;
     if (!Buffer.isBuffer(buffer)) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_CONTENT_TYPE',
-          message: 'Expected binary payload with Content-Type: application/octet-stream',
-          status: 400,
-        },
-      });
+      return sendError(
+        res,
+        400,
+        'INVALID_CONTENT_TYPE',
+        'Expected binary payload with Content-Type: application/octet-stream'
+      );
     }
 
-    const parseResult = parseBinaryBatch(buffer);
+    let parseResult;
+    try {
+      parseResult = parseBinaryBatch(buffer);
+    } catch (err) {
+      console.error('[Measurements] Unexpected binary parser error:', err);
+      return sendError(res, 400, 'INVALID_BINARY_PAYLOAD', err?.message || 'Malformed binary payload');
+    }
+
     if (!parseResult.success || !parseResult.batch) {
-      return res.status(parseResult.statusCode || 400).json({
-        error: {
-          code: 'INVALID_BINARY_PAYLOAD',
-          message: parseResult.error,
-          status: parseResult.statusCode || 400,
-        },
-      });
+      return sendError(
+        res,
+        parseResult.statusCode || 400,
+        'INVALID_BINARY_PAYLOAD',
+        parseResult.error
+      );
     }
 
     const batch = parseResult.batch;
     const deviceId = auth.id;
-
-    // 1. Apply smooth timeframe normalization & clock fusion if service is active
     let effectiveBatch = batch;
+
+    // 1. Apply smooth timeframe normalization & clock fusion (non-fatal if it faults)
     if (clockFusionService) {
-      const fused = clockFusionService.processBatch(deviceId, batch, Date.now());
-      effectiveBatch = {
-        header: {
-          ...batch.header,
-          baseTimestampMs: BigInt(fused.effectiveBaseMs),
-        },
-        records: fused.records,
-      };
+      try {
+        const fused = clockFusionService.processBatch(deviceId, batch, Date.now());
+        effectiveBatch = {
+          header: {
+            ...batch.header,
+            baseTimestampMs: BigInt(fused.effectiveBaseMs),
+          },
+          records: fused.records,
+        };
+      } catch (err) {
+        console.error(`[Measurements] Clock fusion error for device ${deviceId} (continuing with raw batch):`, err);
+      }
     }
 
-    // 2. Apply temporal multi-target tracking (MTT) across unified timeframes
+    // 2. Apply temporal multi-target tracking (MTT) (non-fatal if it faults)
     if (multiTargetTracker) {
-      const tracked = multiTargetTracker.processBatch(deviceId, effectiveBatch);
-      effectiveBatch = {
-        header: effectiveBatch.header,
-        records: tracked.records,
-        activeTracks: tracked.activeTracks,
-      };
+      try {
+        const tracked = multiTargetTracker.processBatch(deviceId, effectiveBatch);
+        effectiveBatch = {
+          header: effectiveBatch.header,
+          records: tracked.records,
+          activeTracks: tracked.activeTracks,
+        };
+      } catch (err) {
+        console.error(`[Measurements] Multi-target tracker error for device ${deviceId} (continuing without tracks):`, err);
+      }
     }
 
-    // 2b. Apply PTZ Director decision engine across active tracks and acoustic arrivals
+    // 2b. Apply PTZ Director decision engine across active tracks and acoustic arrivals (non-fatal if it faults)
     if (ptzDirectorService) {
-      const zones = spatialZoneService ? spatialZoneService.getZones(deviceId) : [];
-      const directorState = ptzDirectorService.processBatch(
-        deviceId,
-        effectiveBatch.activeTracks || [],
-        effectiveBatch.records || [],
-        zones,
-        Date.now()
-      );
-      effectiveBatch.director = directorState;
+      try {
+        const zones = spatialZoneService ? spatialZoneService.getZones(deviceId) : [];
+        const directorState = ptzDirectorService.processBatch(
+          deviceId,
+          effectiveBatch.activeTracks || [],
+          effectiveBatch.records || [],
+          zones,
+          Date.now()
+        );
+        effectiveBatch.director = directorState;
+      } catch (err) {
+        console.error(`[Measurements] PTZ Director error for device ${deviceId} (continuing without director state):`, err);
+      }
     }
 
-    // 3. Persist batch to database
-    measurementService.insertBatch(deviceId, effectiveBatch);
+    // 3 & 4. Persist batch to database and update device heartbeat
+    try {
+      measurementService.insertBatch(deviceId, effectiveBatch);
+      deviceService.updateDeviceHeartbeat(deviceId, effectiveBatch.header.clockSource);
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Measurements:Persist', 'DATABASE_ERROR');
+    }
 
-    // 4. Update device heartbeat
-    deviceService.updateDeviceHeartbeat(deviceId, effectiveBatch.header.clockSource);
-
-    // 5. Broadcast to all active SSE subscribers
-    sseBroadcaster.broadcastBatch(deviceId, effectiveBatch);
+    // 5. Broadcast to all active SSE subscribers (non-fatal after DB commit)
+    try {
+      sseBroadcaster.broadcastBatch(deviceId, effectiveBatch);
+    } catch (err) {
+      console.error(`[Measurements] SSE broadcast error for device ${deviceId}:`, err);
+    }
 
     return res.status(200).json({
       status: 'success',
@@ -116,15 +151,23 @@ export function createMeasurementRoutes(
    * Retrieve active and coasting tracked sound sources
    */
   router.get('/devices/:device_id/tracks', (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    const tracks = multiTargetTracker
-      ? multiTargetTracker.getManager(deviceId).getActiveTracksSnapshot()
-      : [];
-    return res.status(200).json({
-      device_id: deviceId,
-      track_count: tracks.length,
-      tracks,
-    });
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null) {
+      return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
+    }
+
+    try {
+      const tracks = multiTargetTracker
+        ? multiTargetTracker.getManager(deviceId).getActiveTracksSnapshot()
+        : [];
+      return res.status(200).json({
+        device_id: deviceId,
+        track_count: tracks.length,
+        tracks,
+      });
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Measurements:Tracks', 'TRACKS_FETCH_FAILED');
+    }
   });
 
   /**
@@ -132,18 +175,27 @@ export function createMeasurementRoutes(
    * Poll latest measurements (REST fallback)
    */
   router.get('/devices/:device_id/measurements/latest', (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    const sinceTimestamp = parseInt(req.query.since_timestamp, 10) || 0;
-    const limit = parseInt(req.query.limit, 10) || 50;
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null) {
+      return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
+    }
 
-    const records = measurementService.getLatestMeasurements(deviceId, sinceTimestamp, limit);
-    const latestTimestamp = records.length > 0 ? records[records.length - 1].timestamp_ms : sinceTimestamp;
+    try {
+      const sinceTimestamp = parseOptionalInt(req.query.since_timestamp) ?? 0;
+      const rawLimit = parseOptionalInt(req.query.limit) ?? 50;
+      const limit = Math.max(1, Math.min(1000, rawLimit));
 
-    return res.status(200).json({
-      device_id: deviceId,
-      latest_timestamp_ms: latestTimestamp,
-      records,
-    });
+      const records = measurementService.getLatestMeasurements(deviceId, sinceTimestamp, limit);
+      const latestTimestamp = records.length > 0 ? records[records.length - 1].timestamp_ms : sinceTimestamp;
+
+      return res.status(200).json({
+        device_id: deviceId,
+        latest_timestamp_ms: latestTimestamp,
+        records,
+      });
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Measurements:Latest', 'DATABASE_ERROR');
+    }
   });
 
   /**
@@ -151,24 +203,32 @@ export function createMeasurementRoutes(
    * Historical query with filtering
    */
   router.get('/devices/:device_id/measurements', (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    const startTime = req.query.start_time ? parseInt(req.query.start_time, 10) : undefined;
-    const endTime = req.query.end_time ? parseInt(req.query.end_time, 10) : undefined;
-    const minConfidence = req.query.min_confidence ? parseFloat(req.query.min_confidence) : undefined;
-    const minSplDb = req.query.min_spl_db ? parseFloat(req.query.min_spl_db) : undefined;
-    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 100;
-    const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null) {
+      return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
+    }
 
-    const result = measurementService.queryMeasurements(deviceId, {
-      startTime,
-      endTime,
-      minConfidence,
-      minSplDb,
-      limit,
-      offset,
-    });
+    try {
+      const startTime = parseOptionalInt(req.query.start_time);
+      const endTime = parseOptionalInt(req.query.end_time);
+      const minConfidence = parseOptionalFloat(req.query.min_confidence);
+      const minSplDb = parseOptionalFloat(req.query.min_spl_db);
+      const rawLimit = parseOptionalInt(req.query.limit) ?? 100;
+      const rawOffset = parseOptionalInt(req.query.offset) ?? 0;
 
-    return res.status(200).json(result);
+      const result = measurementService.queryMeasurements(deviceId, {
+        startTime,
+        endTime,
+        minConfidence,
+        minSplDb,
+        limit: Math.max(1, Math.min(1000, rawLimit)),
+        offset: Math.max(0, rawOffset),
+      });
+
+      return res.status(200).json(result);
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Measurements:Query', 'DATABASE_ERROR');
+    }
   });
 
   /**
@@ -176,9 +236,17 @@ export function createMeasurementRoutes(
    * Global all-time measurement count for a device
    */
   router.get('/devices/:device_id/count', (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    const total = measurementService.getTotalCount(deviceId);
-    return res.status(200).json({ device_id: deviceId, total });
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null) {
+      return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
+    }
+
+    try {
+      const total = measurementService.getTotalCount(deviceId);
+      return res.status(200).json({ device_id: deviceId, total });
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Measurements:Count', 'DATABASE_ERROR');
+    }
   });
 
   /**
@@ -186,12 +254,20 @@ export function createMeasurementRoutes(
    * Aggregated acoustic statistics (36 angular bins)
    */
   router.get('/devices/:device_id/stats', (req, res) => {
-    const deviceId = parseInt(req.params.device_id, 10);
-    const timeframe = req.query.timeframe || '1h';
-    const sinceMs = req.query.since_ms ? parseInt(req.query.since_ms, 10) : null;
+    const deviceId = parseDeviceId(req.params.device_id);
+    if (deviceId === null) {
+      return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
+    }
 
-    const stats = measurementService.getStats(deviceId, timeframe, sinceMs);
-    return res.status(200).json(stats);
+    try {
+      const timeframe = req.query.timeframe || '1h';
+      const sinceMs = parseOptionalInt(req.query.since_ms) ?? null;
+
+      const stats = measurementService.getStats(deviceId, timeframe, sinceMs);
+      return res.status(200).json(stats);
+    } catch (err) {
+      return handleUnexpectedRouteError(res, err, 'Measurements:Stats', 'DATABASE_ERROR');
+    }
   });
 
   return router;

@@ -156,11 +156,35 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   // 9. Global Error Handler
   app.use((err, _req, res, _next) => {
     console.error('[Server Error]', err);
-    res.status(err.status || 500).json({
+
+    if (err instanceof SyntaxError && err.type === 'entity.parse.failed') {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_JSON',
+          message: err.message || 'Malformed JSON request body',
+          status: 400,
+        },
+      });
+    }
+
+    if (err.type === 'entity.too.large') {
+      return res.status(413).json({
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message: err.message || 'Request payload exceeds size limit',
+          status: 413,
+        },
+      });
+    }
+
+    const status = err.status || 500;
+    const code = err.code || (status === 400 ? 'BAD_REQUEST' : 'INTERNAL_SERVER_ERROR');
+
+    return res.status(status).json({
       error: {
-        code: 'INTERNAL_SERVER_ERROR',
+        code,
         message: err.message || 'An unexpected error occurred',
-        status: err.status || 500,
+        status,
       },
     });
   });
