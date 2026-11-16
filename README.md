@@ -38,10 +38,13 @@ High-performance REST API and Server-Sent Events (SSE) streaming server for the 
 - Node.js 20.x or higher
 - npm 10.x or higher
 
-### 2. Installation
+### 2. Installation & Environment
 ```bash
 npm install
+cp .env.example .env   # Optional: customize ports, DB path, JWT_SECRET, or admin password
 ```
+
+On first boot with an empty database, the server seeds a default administrator (`admin` / `admin123`) and device 1 (`esp32-acoustic-doa-secret-key-1`), both configurable via `.env`.
 
 ### 3. Generate Dev TLS Certificates (With SAN Extensions for HTTPS)
 ```bash
