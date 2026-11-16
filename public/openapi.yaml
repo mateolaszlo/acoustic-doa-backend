@@ -814,6 +814,19 @@ paths:
                     $ref: '#/components/schemas/UserProfile'
         '401':
           description: Invalid credentials
+        '429':
+          description: Too many login attempts (TOO_MANY_REQUESTS)
+
+  /auth/logout:
+    post:
+      summary: User Logout
+      description: Clears the HttpOnly `acoustic_session` cookie.
+      operationId: logoutUser
+      tags:
+        - Authentication
+      responses:
+        '200':
+          description: Logged out cleanly
 
   /auth/register:
     post:
@@ -1533,4 +1546,9 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT token for authenticated web dashboard clients (Admin role required for hardware calibration)
+      description: JWT token for authenticated web dashboard clients (Admin role required for mutations)
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: acoustic_session
+      description: HttpOnly SameSite=Lax JWT session cookie issued on login and registration

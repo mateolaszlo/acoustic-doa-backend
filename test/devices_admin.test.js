@@ -53,14 +53,19 @@ describe('Admin Device & API Key Management REST Endpoints', () => {
     if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
   });
 
-  it('public GET /devices returns sanitized device list without api_key', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/devices`);
+  it('blocks unauthenticated GET /devices with 401 and returns sanitized list for viewer', async () => {
+    const unauthRes = await fetch(`${baseUrl}/api/v1/devices`);
+    expect(unauthRes.status).toBe(401);
+
+    const res = await fetch(`${baseUrl}/api/v1/devices`, {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
     expect(res.status).toBe(200);
     const devices = await res.json();
     expect(devices.length).toBeGreaterThanOrEqual(1);
     expect(devices[0].id).toBe(1);
     expect(devices[0].name).toBeDefined();
-    expect(devices[0].api_key).toBeUndefined(); // Must not be exposed to public!
+    expect(devices[0].api_key).toBeUndefined(); // Must not be exposed to viewer!
   });
 
   it('admin GET /devices returns administrative details with api_key and total_events', async () => {
@@ -102,7 +107,9 @@ describe('Admin Device & API Key Management REST Endpoints', () => {
     expect(device.api_key).toMatch(/^esp32-acoustic-doa-secret-key-/);
 
     // Verify auto-seeded calibration profile
-    const calibRes = await fetch(`${baseUrl}/api/v1/devices/2/config`);
+    const calibRes = await fetch(`${baseUrl}/api/v1/devices/2/config`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
     expect(calibRes.status).toBe(200);
     const calib = await calibRes.json();
     expect(calib.device_id).toBe(2);
@@ -167,7 +174,9 @@ describe('Admin Device & API Key Management REST Endpoints', () => {
     expect(result.success).toBe(true);
 
     // Verify device 2 no longer exists
-    const listRes = await fetch(`${baseUrl}/api/v1/devices`);
+    const listRes = await fetch(`${baseUrl}/api/v1/devices`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
     const list = await listRes.json();
     expect(list.find((d) => d.id === 2)).toBeUndefined();
   });

@@ -1,8 +1,25 @@
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-export const JWT_SECRET = process.env.JWT_SECRET || 'acoustic-doa-jwt-super-secret-key-2026';
+function resolveJwtSecret() {
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET.trim().length >= 16) {
+    return process.env.JWT_SECRET.trim();
+  }
+  if (process.env.VITEST || process.env.NODE_ENV === 'test') {
+    return 'acoustic-doa-test-jwt-secret-key-2026';
+  }
+  console.warn(
+    '[SECURITY WARN] JWT_SECRET is not set (or <16 chars). Generated ephemeral runtime secret; sessions will reset on restart.'
+  );
+  return crypto.randomBytes(32).toString('hex');
+}
+
+export const JWT_SECRET = resolveJwtSecret();
 export const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
+const BCRYPT_ROUNDS = process.env.VITEST ? 10 : 12;
+const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,32}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export class AuthService {
   constructor(db) {
@@ -10,26 +27,26 @@ export class AuthService {
   }
 
   generateToken(payload) {
-    return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+    return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY, algorithm: 'HS256' });
   }
 
   verifyToken(token) {
     try {
-      return jwt.verify(token, JWT_SECRET);
+      return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     } catch {
       return null;
     }
   }
 
   registerUser(username, email, password, role = 'viewer') {
-    if (!username || typeof username !== 'string' || username.trim().length < 3) {
-      throw new Error('Username must be at least 3 characters long');
+    if (!username || typeof username !== 'string' || !USERNAME_REGEX.test(username.trim())) {
+      throw new Error('Username must be 3-32 characters (letters, numbers, _, ., -)');
     }
-    if (!email || !email.includes('@')) {
+    if (!email || typeof email !== 'string' || email.trim().length > 254 || !EMAIL_REGEX.test(email.trim())) {
       throw new Error('A valid email address is required');
     }
-    if (!password || password.length < 6) {
-      throw new Error('Password must be at least 6 characters long');
+    if (!password || typeof password !== 'string' || password.length < 8 || password.length > 128) {
+      throw new Error('Password must be between 8 and 128 characters long');
     }
     if (!['admin', 'viewer'].includes(role)) {
       role = 'viewer';
@@ -50,7 +67,7 @@ export class AuthService {
       throw new Error(`Email '${cleanEmail}' is already registered`);
     }
 
-    const hash = bcrypt.hashSync(password, 10);
+    const hash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
     const now = new Date().toISOString();
 
     const insertStmt = this.db.prepare(`
@@ -71,7 +88,7 @@ export class AuthService {
   }
 
   loginUser(identifier, password) {
-    if (!identifier || !password) {
+    if (!identifier || typeof identifier !== 'string' || !password || typeof password !== 'string' || password.length > 128) {
       throw new Error('Username and password are required');
     }
 

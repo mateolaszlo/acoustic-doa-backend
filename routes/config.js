@@ -1,15 +1,17 @@
 import { Router } from 'express';
+import { sseBroadcaster } from '../utils/sse_broadcaster.js';
 import { sendError, parseDeviceId, handleUnexpectedRouteError } from '../utils/http_errors.js';
 
 export function createConfigRoutes(calibrationService, authMiddleware = null) {
   const router = Router();
+  const authGuard = authMiddleware ? [authMiddleware.authenticateJWT] : [];
   const adminGuard = authMiddleware ? [authMiddleware.authenticateJWT, authMiddleware.requireRole('admin')] : [];
 
   /**
    * GET /api/v1/devices/:device_id/config
-   * Retrieve current configuration (Public read-only for radar display)
+   * Retrieve current configuration (Authenticated Viewer / Admin)
    */
-  router.get('/devices/:device_id/config', (req, res) => {
+  router.get('/devices/:device_id/config', ...authGuard, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
@@ -43,6 +45,12 @@ export function createConfigRoutes(calibrationService, authMiddleware = null) {
         return sendError(res, 400, 'VALIDATION_ERROR', result.error);
       }
 
+      try {
+        sseBroadcaster.broadcastDeviceConfig(deviceId, result.data);
+      } catch (sseErr) {
+        console.error('[Config:Update] Failed to broadcast device_config:', sseErr);
+      }
+
       return res.status(200).json(result.data);
     } catch (err) {
       return handleUnexpectedRouteError(res, err, 'Config:Update', 'CONFIG_UPDATE_FAILED');
@@ -64,6 +72,14 @@ export function createConfigRoutes(calibrationService, authMiddleware = null) {
 
     try {
       const result = calibrationService.calibrateZeroAngle(deviceId, sampleCount);
+      try {
+        const updatedCalib = calibrationService.getCalibration(deviceId);
+        if (updatedCalib) {
+          sseBroadcaster.broadcastDeviceConfig(deviceId, updatedCalib);
+        }
+      } catch (sseErr) {
+        console.error('[Config:CalibrateZero] Failed to broadcast device_config:', sseErr);
+      }
       return res.status(200).json(result);
     } catch (err) {
       if (err?.message?.includes('not found')) {

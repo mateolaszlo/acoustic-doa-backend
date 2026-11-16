@@ -143,8 +143,13 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
   });
 
   describe('REST Endpoints: GET & PUT /api/v1/devices/:device_id/studio', () => {
-    it('retrieves default seeded studio configuration via GET /studio', async () => {
-      const res = await fetch(`${baseUrl}/api/v1/devices/1/studio`);
+    it('retrieves default seeded studio configuration via GET /studio when authenticated', async () => {
+      const unauthRes = await fetch(`${baseUrl}/api/v1/devices/1/studio`);
+      expect(unauthRes.status).toBe(401);
+
+      const res = await fetch(`${baseUrl}/api/v1/devices/1/studio`, {
+        headers: { Authorization: `Bearer ${viewerToken}` },
+      });
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.deviceId).toBe(1);
@@ -157,7 +162,9 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
     });
 
     it('returns 404 for non-existent device on GET /studio', async () => {
-      const res = await fetch(`${baseUrl}/api/v1/devices/999/studio`);
+      const res = await fetch(`${baseUrl}/api/v1/devices/999/studio`, {
+        headers: { Authorization: `Bearer ${viewerToken}` },
+      });
       expect(res.status).toBe(404);
       const data = await res.json();
       expect(data.error.code).toBe('DEVICE_NOT_FOUND');
@@ -221,7 +228,9 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
       expect(data.liveCamId).toBe('cam-side');
 
       // Verify persistence via GET /studio
-      const getRes = await fetch(`${baseUrl}/api/v1/devices/1/studio`);
+      const getRes = await fetch(`${baseUrl}/api/v1/devices/1/studio`, {
+        headers: { Authorization: `Bearer ${viewerToken}` },
+      });
       expect(getRes.status).toBe(200);
       const getData = await getRes.json();
       expect(getData.roomLayout.tableShape).toBe('ushape');
@@ -292,7 +301,9 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
       expect(data.live_cam_id).toBe('cam-rear');
 
       // Check authoritative studio state
-      const studioRes = await fetch(`${baseUrl}/api/v1/devices/1/studio`);
+      const studioRes = await fetch(`${baseUrl}/api/v1/devices/1/studio`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
       expect(studioRes.status).toBe(200);
       const studioData = await studioRes.json();
       expect(studioData.liveCamId).toBe('cam-rear');

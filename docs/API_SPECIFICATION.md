@@ -37,11 +37,12 @@ All errors return a consistent structured JSON envelope:
 Standard status codes:
 - `200 OK` / `201 Created`: Request succeeded.
 - `400 Bad Request`: Validation failure, malformed JSON (`INVALID_JSON`), invalid `:device_id` (`INVALID_DEVICE_ID`), invalid query filters (`INVALID_QUERY_PARAM`), malformed binary buffer (`INVALID_BINARY_PAYLOAD`), or invalid studio configuration (`INVALID_STUDIO_CONFIG`).
-- `401 Unauthorized`: Missing or invalid `x-api-key` or JWT Bearer token (`INVALID_TOKEN`).
-- `403 Forbidden`: Valid JWT missing required `admin` role.
+- `401 Unauthorized`: Missing or invalid `x-api-key`, `acoustic_session` cookie, or JWT Bearer token (`UNAUTHORIZED` / `INVALID_TOKEN`).
+- `403 Forbidden`: Valid session missing required `admin` role (`FORBIDDEN`), or disallowed CORS origin (`CORS_FORBIDDEN`).
 - `404 Not Found`: Unknown device/user ID or non-existent route.
 - `409 Conflict`: Duplicate resource conflict (e.g., `DUPLICATE_API_KEY` or duplicate user).
 - `413 Payload Too Large`: JSON body exceeds Express size limit (`PAYLOAD_TOO_LARGE`).
+- `429 Too Many Requests`: Auth rate limiter exceeded (`TOO_MANY_REQUESTS`).
 - `500 Internal Server Error`: Unexpected server or SQLite persistence failure (`DATABASE_ERROR`, `AUTH_SERVICE_ERROR`, `INTERNAL_SERVER_ERROR` — preserves `err.message` in JSON for diagnostics).
 
 ---
@@ -347,18 +348,20 @@ All node modification and provisioning endpoints require authentication with the
 ## 6. Authentication & User Management
 
 ### 6.1 Administrator & Viewer Login
-- **Method & Route:** `POST /auth/login`
+- **Method & Route:** `POST /auth/login` (Rate limited)
 - **Request Body:** `{ "username": "admin", "password": "..." }`
-- **Response `200 OK`:** Returns signed JWT (`token`) and user object (`{ id, username, email, role }`).
+- **Response `200 OK`:** Sets `HttpOnly; SameSite=Lax` cookie `acoustic_session` and returns `{ message, token, user }`.
 
 ### 6.2 User Registration
-- **Method & Route:** `POST /auth/register`
-- **Request Body:** `{ "username": "operator1", "email": "op@fe.uni-lj.si", "password": "..." }`
-- **Description:** Registers a new account with default `viewer` role.
+- **Method & Route:** `POST /auth/register` (Rate limited)
+- **Request Body:** `{ "username": "operator1", "email": "op@fe.uni-lj.si", "password": "..." }` (`password` 8–128 chars)
+- **Description:** Registers a new account with default `viewer` role and sets `acoustic_session` cookie.
 
-### 6.3 Authenticated Profile
-- **Method & Route:** `GET /auth/me`
-- **Headers:** `Authorization: Bearer <token>`
+### 6.3 Authenticated Profile & Logout
+- **Method & Route:** `GET /auth/me` — Accepts `acoustic_session` cookie or `Authorization: Bearer <token>`.
+- **Method & Route:** `POST /auth/logout` — Clears `acoustic_session` cookie.
+
+*(All Web Dashboard `GET` and `/stream` SSE endpoints require an authenticated `admin` or `viewer` session.)*
 
 ### 6.4 User Role Management (Admin only)
 - **Method & Route:** `GET /users` — List all registered platform users.

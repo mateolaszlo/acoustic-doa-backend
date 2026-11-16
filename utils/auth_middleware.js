@@ -1,46 +1,81 @@
 /**
  * Authentication & Role-Based Access Control (RBAC) Middleware
+ * Supports both HttpOnly cookie sessions (`acoustic_session`) and `Authorization: Bearer <token>`.
  */
 
+import { parseCookies } from './cookie_parser.js';
+
+export const SESSION_COOKIE_NAME = 'acoustic_session';
+
+function extractToken(req) {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const bearer = authHeader.slice(7).trim();
+    if (bearer) return bearer;
+  }
+
+  const cookies = parseCookies(req.headers['cookie']);
+  if (cookies[SESSION_COOKIE_NAME]) {
+    return cookies[SESSION_COOKIE_NAME];
+  }
+
+  return null;
+}
+
 export function createAuthMiddleware(authService) {
+  function resolveActiveUser(token) {
+    const decoded = authService.verifyToken(token);
+    if (!decoded || !decoded.id) return null;
+
+    // Re-verify live user record so deleted or demoted accounts lose access immediately
+    const liveUser = authService.getUserById(decoded.id);
+    if (!liveUser) return null;
+
+    return {
+      id: liveUser.id,
+      username: liveUser.username,
+      email: liveUser.email,
+      role: liveUser.role,
+    };
+  }
+
   function authenticateJWT(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = extractToken(req);
+    if (!token) {
       return res.status(401).json({
         error: {
           code: 'UNAUTHORIZED',
-          message: 'Missing or malformed Authorization header. Expected format: Bearer <token>',
+          message: 'Authentication required. Please sign in to access this resource.',
           status: 401,
         },
       });
     }
 
-    const token = authHeader.slice(7).trim();
-    let decoded = null;
+    let user = null;
     try {
-      decoded = authService.verifyToken(token);
+      user = resolveActiveUser(token);
     } catch (err) {
       console.error('[AuthMiddleware] Token verification error:', err);
       return res.status(401).json({
         error: {
           code: 'INVALID_TOKEN',
-          message: 'Provided JWT token is invalid or has expired',
+          message: 'Provided session token is invalid or has expired',
           status: 401,
         },
       });
     }
 
-    if (!decoded) {
+    if (!user) {
       return res.status(401).json({
         error: {
           code: 'INVALID_TOKEN',
-          message: 'Provided JWT token is invalid or has expired',
+          message: 'Provided session token is invalid or has expired',
           status: 401,
         },
       });
     }
 
-    req.user = decoded;
+    req.user = user;
     next();
   }
 
@@ -71,13 +106,12 @@ export function createAuthMiddleware(authService) {
   }
 
   function optionalJWT(req, _res, next) {
-    const authHeader = req.headers['authorization'];
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.slice(7).trim();
+    const token = extractToken(req);
+    if (token) {
       try {
-        const decoded = authService.verifyToken(token);
-        if (decoded) {
-          req.user = decoded;
+        const user = resolveActiveUser(token);
+        if (user) {
+          req.user = user;
         }
       } catch (err) {
         console.warn('[AuthMiddleware] Optional JWT verification failed:', err.message);

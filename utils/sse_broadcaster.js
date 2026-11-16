@@ -88,6 +88,14 @@ class SSEBroadcaster {
     return this._broadcastEvent('studio_config', studioSnapshot, deviceId);
   }
 
+  broadcastZonesConfig(deviceId, zones) {
+    return this._broadcastEvent('zones_config', { deviceId, zones }, deviceId);
+  }
+
+  broadcastDeviceConfig(deviceId, calibration) {
+    return this._broadcastEvent('device_config', { deviceId, calibration }, deviceId);
+  }
+
   sendHeartbeat() {
     this._broadcastEvent('heartbeat', { server_time_unix_ms: Date.now() }, null);
   }

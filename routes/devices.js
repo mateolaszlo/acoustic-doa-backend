@@ -13,11 +13,10 @@ export function createDeviceRoutes(
   ptzDirectorService = null
 ) {
   const router = Router();
+  const authGuard = authMiddleware ? [authMiddleware.authenticateJWT] : [];
   const adminGuard = authMiddleware
     ? [authMiddleware.authenticateJWT, authMiddleware.requireRole('admin')]
     : [];
-
-  const optionalAuth = authMiddleware?.optionalJWT || ((_req, _res, next) => next());
 
   function requireDevice(res, rawDeviceId) {
     const deviceId = parseDeviceId(rawDeviceId);
@@ -37,9 +36,9 @@ export function createDeviceRoutes(
 
   /**
    * GET /api/v1/devices
-   * List all registered devices (returns full admin details with api_key if authenticated as admin)
+   * List all registered devices (Authenticated; returns full details with api_key only for admin)
    */
-  router.get('/devices', optionalAuth, (req, res) => {
+  router.get('/devices', ...authGuard, (req, res) => {
     try {
       const isAdmin = Boolean(req.user && req.user.role === 'admin');
       const devices = isAdmin
@@ -227,9 +226,9 @@ export function createDeviceRoutes(
 
   /**
    * GET /api/v1/devices/:device_id/zones
-   * Retrieve spatial zones / acoustic geofences for this device (Public / Viewer / Admin)
+   * Retrieve spatial zones / acoustic geofences for this device (Authenticated Viewer / Admin)
    */
-  router.get('/devices/:device_id/zones', (req, res) => {
+  router.get('/devices/:device_id/zones', ...authGuard, (req, res) => {
     try {
       const resolved = requireDevice(res, req.params.device_id);
       if (!resolved) return;
@@ -264,6 +263,12 @@ export function createDeviceRoutes(
         return sendError(res, 400, 'INVALID_ZONE_CONFIG', result.error);
       }
 
+      try {
+        sseBroadcaster.broadcastZonesConfig(resolved.deviceId, result.zones);
+      } catch (sseErr) {
+        console.error('[Devices:UpdateZones] Failed to broadcast zones_config:', sseErr);
+      }
+
       return res.status(200).json({
         success: true,
         device_id: resolved.deviceId,
@@ -276,9 +281,9 @@ export function createDeviceRoutes(
 
   /**
    * GET /api/v1/devices/:device_id/studio
-   * Retrieve conference room layout, virtual cameras, director config, and live telemetry (Public / Viewer / Admin)
+   * Retrieve conference room layout, virtual cameras, director config, and live telemetry (Authenticated Viewer / Admin)
    */
-  router.get('/devices/:device_id/studio', (req, res) => {
+  router.get('/devices/:device_id/studio', ...authGuard, (req, res) => {
     try {
       const resolved = requireDevice(res, req.params.device_id);
       if (!resolved) return;

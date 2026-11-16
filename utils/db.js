@@ -203,23 +203,37 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
     console.warn('[DB] Studio config seeding check skipped:', err.message);
   }
 
-  // 2. Seed default admin account if users table is empty
+  // 2. Seed default admin and viewer accounts from env/config if missing
   try {
-    const userCountStmt = db.prepare('SELECT COUNT(*) as count FROM users');
-    const userRow = userCountStmt.get();
-    if (userRow.count === 0) {
-      const adminUser = process.env.DEFAULT_ADMIN_USER || 'admin';
-      const adminEmail = process.env.DEFAULT_ADMIN_EMAIL || 'admin@acoustic-doa.local';
-      const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
-      const hash = bcrypt.hashSync(adminPassword, 10);
-      const now = new Date().toISOString();
+    const bcryptRounds = process.env.VITEST ? 10 : 12;
+    const insertUser = db.prepare(`
+      INSERT INTO users (username, email, password_hash, role, created_at, last_login_at)
+      VALUES (?, ?, ?, ?, ?, NULL)
+    `);
+    const findUserStmt = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?');
 
-      const insertUser = db.prepare(`
-        INSERT INTO users (username, email, password_hash, role, created_at, last_login_at)
-        VALUES (?, ?, ?, 'admin', ?, ?)
-      `);
-      insertUser.run(adminUser, adminEmail, hash, now, null);
-      console.log(`[DB] Seeded initial administrator: ${adminUser} (role: admin)`);
+    const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get().count;
+    if (adminCount === 0) {
+      const adminUser = (process.env.DEFAULT_ADMIN_USER || 'admin').trim().toLowerCase();
+      const adminEmail = (process.env.DEFAULT_ADMIN_EMAIL || 'admin@acoustic-doa.local').trim().toLowerCase();
+      const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
+      if (!findUserStmt.get(adminUser, adminEmail)) {
+        const hash = bcrypt.hashSync(adminPassword, bcryptRounds);
+        insertUser.run(adminUser, adminEmail, hash, 'admin', new Date().toISOString());
+        console.log(`[DB] Seeded initial administrator: ${adminUser} (role: admin)`);
+      }
+    }
+
+    const viewerCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'viewer'").get().count;
+    if (viewerCount === 0) {
+      const viewerUser = (process.env.DEFAULT_VIEWER_USER || 'viewer').trim().toLowerCase();
+      const viewerEmail = (process.env.DEFAULT_VIEWER_EMAIL || 'viewer@acoustic-doa.local').trim().toLowerCase();
+      const viewerPassword = process.env.DEFAULT_VIEWER_PASSWORD || 'viewer123';
+      if (!findUserStmt.get(viewerUser, viewerEmail)) {
+        const hash = bcrypt.hashSync(viewerPassword, bcryptRounds);
+        insertUser.run(viewerUser, viewerEmail, hash, 'viewer', new Date().toISOString());
+        console.log(`[DB] Seeded initial viewer: ${viewerUser} (role: viewer)`);
+      }
     }
   } catch (err) {
     console.warn('[DB] Users table check skipped:', err.message);

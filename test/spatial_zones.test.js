@@ -55,8 +55,13 @@ describe('Spatial Zones REST API & Service', () => {
     if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
   });
 
-  it('GET /devices/1/zones returns default seeded spatial zones without authentication', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/devices/1/zones`);
+  it('GET /devices/1/zones blocks unauthenticated requests with 401 and returns default zones to viewer', async () => {
+    const unauthRes = await fetch(`${baseUrl}/api/v1/devices/1/zones`);
+    expect(unauthRes.status).toBe(401);
+
+    const res = await fetch(`${baseUrl}/api/v1/devices/1/zones`, {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
     expect(res.status).toBe(200);
     const zones = await res.json();
     expect(Array.isArray(zones)).toBe(true);
@@ -76,7 +81,9 @@ describe('Spatial Zones REST API & Service', () => {
   });
 
   it('GET /devices/999/zones returns 404 for non-existent device', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/devices/999/zones`);
+    const res = await fetch(`${baseUrl}/api/v1/devices/999/zones`, {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
     expect(res.status).toBe(404);
     const data = await res.json();
     expect(data.error.code).toBe('DEVICE_NOT_FOUND');
@@ -163,7 +170,9 @@ describe('Spatial Zones REST API & Service', () => {
     expect(putData.zones.length).toBe(2);
 
     // Verify GET reflects the changes
-    const getRes = await fetch(`${baseUrl}/api/v1/devices/1/zones`);
+    const getRes = await fetch(`${baseUrl}/api/v1/devices/1/zones`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
     expect(getRes.status).toBe(200);
     const fetchedZones = await getRes.json();
     expect(fetchedZones.length).toBe(2);

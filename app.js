@@ -29,7 +29,38 @@ import { createUserRoutes } from './routes/users.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'https://localhost:5173',
+  'http://127.0.0.1:5173',
+  'https://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'https://localhost:3443',
+  'https://127.0.0.1:3443',
+  'https://localhost:8443',
+  'https://127.0.0.1:8443',
+];
+
+function buildCorsOriginValidator() {
+  const configured = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+  const allowlist = new Set([...DEFAULT_ALLOWED_ORIGINS, ...configured]);
+
+  return (origin, callback) => {
+    // Allow same-origin / CLI / curl / ESP32 requests that carry no Origin header
+    if (!origin || allowlist.has(origin)) {
+      return callback(null, true);
+    }
+    const err = new Error(`Origin '${origin}' is not allowed by CORS policy`);
+    err.status = 403;
+    err.code = 'CORS_FORBIDDEN';
+    return callback(err, false);
+  };
+}
+
+export function createApp(dbPath = process.env.DATABASE_PATH || './app.db', options = {}) {
   const app = express();
 
   // 1. Initialize SQLite Database & Service Layer
@@ -51,18 +82,20 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   // 3. Security & Static Middleware
   app.use(
     helmet({
-      contentSecurityPolicy: false, // Required for Swagger UI and SSE streaming
+      contentSecurityPolicy: false, // Required for Swagger UI inline scripts
+      frameguard: { action: 'deny' },
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     })
   );
-  app.use(cors({ origin: true, credentials: true }));
+  app.use(cors({ origin: buildCorsOriginValidator(), credentials: true }));
   app.use(express.static(path.join(__dirname, 'public')));
 
   // 4. Body Parsers
   // Raw octet-stream parser for ESP32 high-speed binary batches (12B header + 20B records)
   app.use(express.raw({ type: 'application/octet-stream', limit: '1mb' }));
   // JSON and URL-encoded parsers for standard REST requests
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: false }));
+  app.use(express.json({ limit: '100kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 
   // 5. Interactive Swagger UI mounted at /api/docs
   const openApiPath = path.join(__dirname, 'public', 'openapi.yaml');
@@ -123,10 +156,10 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   });
 
   apiRouter.use(createDeviceRoutes(deviceService, calibrationService, measurementService, authMiddleware, clockFusionService, multiTargetTracker, spatialZoneService, ptzDirectorService));
-  apiRouter.use(createMeasurementRoutes(measurementService, deviceService, clockFusionService, multiTargetTracker, ptzDirectorService, spatialZoneService));
+  apiRouter.use(createMeasurementRoutes(measurementService, deviceService, clockFusionService, multiTargetTracker, ptzDirectorService, spatialZoneService, authMiddleware));
   apiRouter.use(createConfigRoutes(calibrationService, authMiddleware));
-  apiRouter.use(createSSERoutes());
-  apiRouter.use('/auth', createAuthRoutes(authService, authMiddleware));
+  apiRouter.use(createSSERoutes(authMiddleware));
+  apiRouter.use('/auth', createAuthRoutes(authService, authMiddleware, options.authRateLimit));
   apiRouter.use('/users', createUserRoutes(authService, authMiddleware));
 
   app.use('/api/v1', apiRouter);

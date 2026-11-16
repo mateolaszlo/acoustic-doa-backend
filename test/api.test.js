@@ -137,7 +137,9 @@ describe('Acoustic DOA REST API Endpoints', () => {
   });
 
   it('returns newly inserted records on GET /measurements/latest', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/devices/1/measurements/latest?since_timestamp=0`);
+    const res = await fetch(`${baseUrl}/api/v1/devices/1/measurements/latest?since_timestamp=0`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.records.length).toBe(2);
@@ -236,7 +238,9 @@ describe('Acoustic DOA REST API Endpoints', () => {
   });
 
   it('computes acoustic statistics with 36 angular bins', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/devices/1/stats?timeframe=24h`);
+    const res = await fetch(`${baseUrl}/api/v1/devices/1/stats?timeframe=24h`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
     expect(res.status).toBe(200);
     const stats = await res.json();
     expect(stats.angularBins36.length).toBe(36);
@@ -245,7 +249,9 @@ describe('Acoustic DOA REST API Endpoints', () => {
 
   it('computes acoustic statistics respecting since_ms session filter', async () => {
     const futureMs = Date.now() + 100000;
-    const res = await fetch(`${baseUrl}/api/v1/devices/1/stats?timeframe=24h&since_ms=${futureMs}`);
+    const res = await fetch(`${baseUrl}/api/v1/devices/1/stats?timeframe=24h&since_ms=${futureMs}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
     expect(res.status).toBe(200);
     const stats = await res.json();
     expect(stats.eventCount).toBe(0);
@@ -253,7 +259,9 @@ describe('Acoustic DOA REST API Endpoints', () => {
   });
 
   it('retrieves global all-time measurement count for a device', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/devices/1/count`);
+    const res = await fetch(`${baseUrl}/api/v1/devices/1/count`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.device_id).toBe(1);
@@ -265,23 +273,27 @@ describe('Acoustic DOA REST API Endpoints', () => {
     const sseChunks = [];
 
     const ssePromise = new Promise((resolve, reject) => {
-      const clientReq = http.get(`${baseUrl}/api/v1/devices/1/stream`, (res) => {
-        expect(res.statusCode).toBe(200);
-        expect(res.headers['content-type']).toBe('text/event-stream');
+      const clientReq = http.get(
+        `${baseUrl}/api/v1/devices/1/stream`,
+        { headers: { Authorization: `Bearer ${adminToken}` } },
+        (res) => {
+          expect(res.statusCode).toBe(200);
+          expect(res.headers['content-type']).toBe('text/event-stream');
 
-        res.on('data', (chunk) => {
-          const text = chunk.toString();
-          sseChunks.push(text);
-          if (text.includes('measurement_batch')) {
-            res.destroy();
-            clientReq.destroy();
-            resolve();
-          }
-        });
-        res.on('error', (err) => {
-          if (err.code !== 'ECONNRESET') reject(err);
-        });
-      });
+          res.on('data', (chunk) => {
+            const text = chunk.toString();
+            sseChunks.push(text);
+            if (text.includes('measurement_batch')) {
+              res.destroy();
+              clientReq.destroy();
+              resolve();
+            }
+          });
+          res.on('error', (err) => {
+            if (err.code !== 'ECONNRESET') reject(err);
+          });
+        }
+      );
     });
 
     // Wait 50ms for SSE connection to establish
@@ -355,11 +367,11 @@ describe('Acoustic DOA REST API Endpoints', () => {
     await new Promise((resolve) => httpsServer.listen(0, '127.0.0.1', resolve));
     const httpsPort = httpsServer.address().port;
 
-    const getOverHttps = (reqPath) =>
+    const getOverHttps = (reqPath, headers = {}) =>
       new Promise((resolve, reject) => {
         const req = https.get(
           `https://127.0.0.1:${httpsPort}${reqPath}`,
-          { ca: certPem, servername: 'localhost' },
+          { ca: certPem, servername: 'localhost', headers },
           (res) => {
             let body = '';
             res.on('data', (chunk) => {
@@ -380,7 +392,9 @@ describe('Acoustic DOA REST API Endpoints', () => {
       expect(healthRes.status).toBe(200);
       expect(JSON.parse(healthRes.body).status).toBe('ok');
 
-      const studioRes = await getOverHttps('/api/v1/devices/1/studio');
+      const studioRes = await getOverHttps('/api/v1/devices/1/studio', {
+        Authorization: `Bearer ${adminToken}`,
+      });
       expect(studioRes.status).toBe(200);
       expect(JSON.parse(studioRes.body).deviceId).toBe(1);
     } finally {

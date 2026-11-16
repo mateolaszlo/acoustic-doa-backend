@@ -14,6 +14,7 @@ describe('Backend Error Handling & Fault Isolation', () => {
   let server;
   let baseUrl;
   let db;
+  let viewerToken;
   const testDbPath = path.join(process.cwd(), 'test_error_handling.db');
 
   beforeAll(async () => {
@@ -36,6 +37,14 @@ describe('Backend Error Handling & Fault Isolation', () => {
         resolve();
       });
     });
+
+    const loginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'viewer', password: 'viewer123' }),
+    });
+    expect(loginRes.status).toBe(200);
+    viewerToken = (await loginRes.json()).token;
   });
 
   afterAll(async () => {
@@ -89,7 +98,9 @@ describe('Backend Error Handling & Fault Isolation', () => {
       async (badId) => {
         for (const template of deviceEndpoints) {
           const url = `${baseUrl}${template.replace('{id}', badId)}`;
-          const res = await fetch(url);
+          const res = await fetch(url, {
+            headers: { Authorization: `Bearer ${viewerToken}` },
+          });
           expect(res.status, `Expected 400 for ${url}`).toBe(400);
           const body = await res.json();
           expect(body.error.code).toBe('INVALID_DEVICE_ID');
@@ -99,7 +110,9 @@ describe('Backend Error Handling & Fault Isolation', () => {
     );
 
     it('rejects non-numeric /devices/abc/stream with 400 INVALID_DEVICE_ID', async () => {
-      const res = await fetch(`${baseUrl}/api/v1/devices/abc/stream`);
+      const res = await fetch(`${baseUrl}/api/v1/devices/abc/stream`, {
+        headers: { Authorization: `Bearer ${viewerToken}` },
+      });
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error.code).toBe('INVALID_DEVICE_ID');
@@ -110,6 +123,7 @@ describe('Backend Error Handling & Fault Isolation', () => {
       try {
         const res = await fetch(`${baseUrl}/api/v1/devices/0/stream`, {
           signal: controller.signal,
+          headers: { Authorization: `Bearer ${viewerToken}` },
         });
         expect(res.status).toBe(200);
         expect(res.headers.get('content-type')).toContain('text/event-stream');
@@ -120,7 +134,9 @@ describe('Backend Error Handling & Fault Isolation', () => {
   });
 
   it('isolates tracker and director failures on POST /measurements and still persists raw records', async () => {
-    const beforeRes = await fetch(`${baseUrl}/api/v1/devices/1/count`);
+    const beforeRes = await fetch(`${baseUrl}/api/v1/devices/1/count`, {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
     expect(beforeRes.status).toBe(200);
     const beforeCount = (await beforeRes.json()).total;
 
@@ -154,7 +170,9 @@ describe('Backend Error Handling & Fault Isolation', () => {
       const body = await res.json();
       expect(body.accepted).toBe(2);
 
-      const afterRes = await fetch(`${baseUrl}/api/v1/devices/1/count`);
+      const afterRes = await fetch(`${baseUrl}/api/v1/devices/1/count`, {
+        headers: { Authorization: `Bearer ${viewerToken}` },
+      });
       expect(afterRes.status).toBe(200);
       const afterCount = (await afterRes.json()).total;
       expect(afterCount).toBe(beforeCount + 2);
@@ -172,7 +190,9 @@ describe('Backend Error Handling & Fault Isolation', () => {
       });
 
     try {
-      const res = await fetch(`${baseUrl}/api/v1/devices/1/count`);
+      const res = await fetch(`${baseUrl}/api/v1/devices/1/count`, {
+        headers: { Authorization: `Bearer ${viewerToken}` },
+      });
       expect(res.status).toBe(500);
       const body = await res.json();
       expect(body.error.code).toBe('DATABASE_ERROR');
@@ -190,7 +210,9 @@ describe('Backend Error Handling & Fault Isolation', () => {
        WHERE device_id = 1`
     ).run('{bad json', '[corrupted', '{"not":valid');
 
-    const res = await fetch(`${baseUrl}/api/v1/devices/1/studio`);
+    const res = await fetch(`${baseUrl}/api/v1/devices/1/studio`, {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.deviceId).toBe(1);
@@ -206,6 +228,7 @@ describe('Backend Error Handling & Fault Isolation', () => {
     const controller = new AbortController();
     const res = await fetch(`${baseUrl}/api/v1/devices/0/stream`, {
       signal: controller.signal,
+      headers: { Authorization: `Bearer ${viewerToken}` },
     });
     expect(res.status).toBe(200);
 

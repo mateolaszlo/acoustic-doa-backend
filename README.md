@@ -44,7 +44,7 @@ npm install
 cp .env.example .env   # Optional: customize ports, DB path, JWT_SECRET, or admin password
 ```
 
-On first boot with an empty database, the server seeds a default administrator (`admin` / `admin123`) and device 1 (`esp32-acoustic-doa-secret-key-1`), both configurable via `.env`.
+On first boot with an empty database, the server seeds default administrator (`DEFAULT_ADMIN_*`) and viewer (`DEFAULT_VIEWER_*`) accounts plus device 1 (`esp32-acoustic-doa-secret-key-1`), all configurable via `.env`. Users must authenticate before accessing the dashboard APIs or SSE streams.
 
 ### 3. Generate Dev TLS Certificates (With SAN Extensions for HTTPS)
 ```bash
@@ -143,29 +143,30 @@ acoustic-doa-backend/
 |:---:|:---|:---|:---:|:---|
 | `GET` | `/api/v1/devices/:id/calibration` | ESP32 | `x-api-key` | Retrieve DSP parameters and server UTC time |
 | `POST` | `/api/v1/measurements` | ESP32 | `x-api-key` | Ingest binary batch ($12 + 20N + 4$ bytes with CRC32) |
-| `GET` | `/api/v1/devices/:id/stream` | Web Client | None | Real-time SSE stream (`0` for all devices) |
-| `GET` | `/api/v1/devices/:id/tracks` | Web Client | None | Active & coasting multi-target speaker tracks |
-| `GET` | `/api/v1/devices/:id/measurements/latest` | Web Client | None | Poll newest records since timestamp |
-| `GET` | `/api/v1/devices/:id/measurements` | Web Client | None | Query historical measurements with filters |
-| `GET` | `/api/v1/devices/:id/count` | Web Client | None | Retrieve all-time measurement count (`total`) |
-| `GET` | `/api/v1/devices/:id/stats` | Web Client | None | Retrieve 36-bin polar histogram and peak SPL |
-| `GET` | `/api/v1/devices/:id/config` | Web Client | None | View active device calibration profile |
-| `PUT` | `/api/v1/devices/:id/config` | Web Client | Admin JWT | Update calibration parameters remotely |
-| `POST` | `/api/v1/devices/:id/calibrate/zero-angle` | Web Client | Admin JWT | Compute and apply circular mean zero-angle trim |
-| `GET` | `/api/v1/devices/:id/zones` | Web Client | None | List spatial room geofence sectors |
-| `PUT` | `/api/v1/devices/:id/zones` | Web Client | Admin JWT | Atomically replace spatial zones |
-| `GET` | `/api/v1/devices/:id/studio` | Web Client | None | Get persisted room layout, 1–3 cameras & PTZ director state |
-| `PUT` | `/api/v1/devices/:id/studio` | Web Client | Admin JWT | Update studio layout, cameras (1–3), director tuning or manual cut |
-| `GET` | `/api/v1/devices` | Web Client | Optional JWT | List registered devices (Admin sees API keys & counts) |
-| `POST` | `/api/v1/devices` | Web Client | Admin JWT | Provision a new hardware node |
-| `PUT` | `/api/v1/devices/:id` | Web Client | Admin JWT | Update hardware node details |
-| `POST` | `/api/v1/devices/:id/api-key/rotate` | Web Client | Admin JWT | Rotate device `x-api-key` |
-| `DELETE` | `/api/v1/devices/:id` | Web Client | Admin JWT | Decommission device (rejects sole remaining device) |
-| `DELETE` | `/api/v1/devices/:id/measurements` | Web Client | Admin JWT | Purge historical measurements without dropping SSE |
-| `POST` | `/api/v1/auth/login` | Web Client | None | Authenticate and receive signed JWT |
-| `POST` | `/api/v1/auth/register` | Web Client | None | Register new `viewer` account |
-| `GET` | `/api/v1/auth/me` | Web Client | JWT | Fetch authenticated user profile |
-| `GET` / `PUT` / `DELETE` | `/api/v1/users` / `/:id/role` / `/:id` | Web Client | Admin JWT | List users, update roles, delete users |
+| `GET` | `/api/v1/devices/:id/stream` | Web Client | Cookie / JWT | Real-time SSE stream (`measurement_batch`, `studio_config`, `zones_config`, `device_config`) |
+| `GET` | `/api/v1/devices/:id/tracks` | Web Client | Cookie / JWT | Active & coasting multi-target speaker tracks |
+| `GET` | `/api/v1/devices/:id/measurements/latest` | Web Client | Cookie / JWT | Poll newest records since timestamp |
+| `GET` | `/api/v1/devices/:id/measurements` | Web Client | Cookie / JWT | Query historical measurements with filters |
+| `GET` | `/api/v1/devices/:id/count` | Web Client | Cookie / JWT | Retrieve all-time measurement count (`total`) |
+| `GET` | `/api/v1/devices/:id/stats` | Web Client | Cookie / JWT | Retrieve 36-bin polar histogram and peak SPL |
+| `GET` | `/api/v1/devices/:id/config` | Web Client | Cookie / JWT | View active device calibration profile |
+| `PUT` | `/api/v1/devices/:id/config` | Web Client | Admin JWT/Cookie | Update calibration parameters remotely |
+| `POST` | `/api/v1/devices/:id/calibrate/zero-angle` | Web Client | Admin JWT/Cookie | Compute and apply circular mean zero-angle trim |
+| `GET` | `/api/v1/devices/:id/zones` | Web Client | Cookie / JWT | List spatial room geofence sectors |
+| `PUT` | `/api/v1/devices/:id/zones` | Web Client | Admin JWT/Cookie | Atomically replace spatial zones |
+| `GET` | `/api/v1/devices/:id/studio` | Web Client | Cookie / JWT | Get persisted room layout, 1–3 cameras & PTZ director state |
+| `PUT` | `/api/v1/devices/:id/studio` | Web Client | Admin JWT/Cookie | Update studio layout, cameras (1–3), director tuning or manual cut |
+| `GET` | `/api/v1/devices` | Web Client | Cookie / JWT | List registered devices (Admin sees API keys & counts) |
+| `POST` | `/api/v1/devices` | Web Client | Admin JWT/Cookie | Provision a new hardware node |
+| `PUT` | `/api/v1/devices/:id` | Web Client | Admin JWT/Cookie | Update hardware node details |
+| `POST` | `/api/v1/devices/:id/api-key/rotate` | Web Client | Admin JWT/Cookie | Rotate device `x-api-key` |
+| `DELETE` | `/api/v1/devices/:id` | Web Client | Admin JWT/Cookie | Decommission device (rejects sole remaining device) |
+| `DELETE` | `/api/v1/devices/:id/measurements` | Web Client | Admin JWT/Cookie | Purge historical measurements without dropping SSE |
+| `POST` | `/api/v1/auth/login` | Web Client | None (Rate Limited) | Authenticate & set `HttpOnly` session cookie |
+| `POST` | `/api/v1/auth/register` | Web Client | None (Rate Limited) | Register new `viewer` account & set session cookie |
+| `POST` | `/api/v1/auth/logout` | Web Client | None | Clear `HttpOnly` session cookie |
+| `GET` | `/api/v1/auth/me` | Web Client | Cookie / JWT | Fetch authenticated user profile |
+| `GET` / `PATCH` / `DELETE` | `/api/v1/users` / `/:id/role` / `/:id` | Web Client | Admin JWT/Cookie | List users, update roles, delete users |
 | `GET` | `/health` | All | None | Server uptime and health probe |
 
 ---
