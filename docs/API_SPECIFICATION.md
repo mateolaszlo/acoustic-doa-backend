@@ -196,10 +196,10 @@ Standard status codes:
 - **Response `200 OK`:**
   ```json
   {
-    "device_id": 1,
-    "previous_offset_deg": 0.0,
-    "new_offset_deg": -14.2,
-    "sampled_records": 20
+    "success": true,
+    "previousOffset": 0.0,
+    "newOffset": -14.2,
+    "samplesUsed": 20
   }
   ```
 
@@ -210,12 +210,12 @@ Standard status codes:
 - **Response `200 OK`:**
   ```json
   {
-    "device_id": 1,
+    "deviceId": 1,
     "timeframe": "1h",
-    "event_count": 342,
-    "avg_spl_db": 64.2,
-    "peak_spl_db": 88.5,
-    "angular_bins_36": [
+    "eventCount": 342,
+    "avgSplDb": 64.2,
+    "peakSplDb": 88.5,
+    "angularBins36": [
       12, 5, 2, 0, 0, 1, 4, 18, 54, 82, 35, 12, ...
     ]
   }
@@ -295,22 +295,21 @@ All node modification and provisioning endpoints require authentication with the
   ```json
   {
     "name": "ESP32 DOA Array #2 (North Wall)",
-    "api_key": "custom-key-optional"
+    "apiKey": "custom-key-optional"
   }
   ```
-- **Description:** Provisions a new device record, initializes its default acoustic calibration profile, and auto-generates a secure 32-character API key if not specified. Returns `409 Conflict` (`DUPLICATE_API_KEY`) if the key already exists.
+- **Description:** Provisions a new device record, initializes its default acoustic calibration profile, and auto-generates a secure API key if not specified. Returns `409 Conflict` (`DUPLICATE_API_KEY`) if the key already exists.
 
 ### 5.3 Update or Rotate Node API Key
-- **Method & Route:** `PUT /devices/{device_id}` — Rename device or rotate settings.
+- **Method & Route:** `PUT /devices/{device_id}` — Rename device.
 - **Method & Route:** `POST /devices/{device_id}/api-key/rotate`
 - **Headers:** `Authorization: Bearer <token>` (Admin required)
 - **Response `200 OK`:**
   ```json
   {
-    "success": true,
-    "device_id": 2,
-    "api_key": "esp32-acoustic-doa-c8f94e1a7b2d5f0e1a3c6b8d",
-    "message": "API key rotated successfully. Update this key in the ESP32 firmware."
+    "id": 2,
+    "api_key": "esp32-acoustic-doa-secret-key-c8f94e1a7b2d",
+    "message": "API key successfully rotated"
   }
   ```
 
@@ -366,5 +365,5 @@ All node modification and provisioning endpoints require authentication with the
 ### 6.4 User Role Management (Admin only)
 - **Method & Route:** `GET /users` — List all registered platform users.
 - **Method & Route:** `PATCH /users/{id}/role` — Promote or demote user role (`admin` or `viewer`).
-- **Method & Route:** `DELETE /users/{id}` — Remove a user account (cannot delete your own active admin account).
+- **Method & Route:** `DELETE /users/{id}` — Remove a user account (protects against deleting the only remaining admin).
 

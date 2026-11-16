@@ -399,13 +399,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  device_id:
-                    type: integer
-                  previous_offset_deg:
+                  success:
+                    type: boolean
+                  previousOffset:
                     type: number
-                  new_offset_deg:
+                  newOffset:
                     type: number
-                  sampled_records:
+                  samplesUsed:
                     type: integer
 
   /devices/{device_id}/stats:
@@ -572,9 +572,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  success:
-                    type: boolean
-                  device_id:
+                  id:
                     type: integer
                   api_key:
                     type: string
@@ -605,7 +603,7 @@ paths:
                 properties:
                   device_id:
                     type: integer
-                  count:
+                  total:
                     type: integer
 
   /devices/{device_id}/tracks:
@@ -1263,17 +1261,17 @@ components:
     AcousticStats:
       type: object
       properties:
-        device_id:
+        deviceId:
           type: integer
         timeframe:
           type: string
-        event_count:
+        eventCount:
           type: integer
-        avg_spl_db:
+        avgSplDb:
           type: number
-        peak_spl_db:
+        peakSplDb:
           type: number
-        angular_bins_36:
+        angularBins36:
           type: array
           description: Event counts in 36 ten-degree azimuth slices (-180 to +180)
           items:

@@ -19,7 +19,7 @@
     "sound-localization"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.8.1",

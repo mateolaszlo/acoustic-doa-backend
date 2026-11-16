@@ -109,7 +109,10 @@ acoustic-doa-backend/
 │   ├── measurement_service.js    # Batch inserts & 36-bin angular statistics
 │   ├── auth_service.js           # Password hashing & JWT management
 │   ├── auth_middleware.js        # Express middleware for JWT & RBAC guards
-│   └── http_errors.js            # Structured AppError, sendError & parseDeviceId helpers
+│   ├── cookie_parser.js          # Dependency-free Cookie header parser
+│   ├── env.js                    # Startup .env fail-fast validator
+│   ├── rate_limiter.js           # In-memory sliding-window auth rate limiter
+│   └── http_errors.js            # Structured sendError, parsePositiveIntId & safeJsonParse helpers
 ├── views/
 │   ├── index.ejs                 # HTML landing page with active device status
 │   └── error.ejs                 # Standard error view template
@@ -184,7 +187,10 @@ The binary payload consists of a 12-byte header, $N$ contiguous 20-byte records,
 ### 20-Byte Records
 - `[+0..+3]` `offset_ms`: uint32_le
 - `[+4..+7]` `angle_deg`: float32_le ($\phi \in [-180^\circ, +180^\circ]$)
-- `[+8..+11]` `delay_us`: float32_le
+- `[+8]` `slot_id`: uint8 ($0..2$)
+- `[+9]` `sector_id`: uint8 ($0..72$ or `0xFF` on `LEAVE`)
+- `[+10]` `event_type`: uint8 (`1=ENTER`, `2=MOVE`, `3=HEARTBEAT`, `4=LEAVE`)
+- `[+11]` `active_sources`: uint8 ($0..2$)
 - `[+12..+15]` `sound_level_db`: float32_le (calibrated dB SPL)
 - `[+16..+19]` `confidence`: float32_le ($[0.0, 1.0]$)
 
