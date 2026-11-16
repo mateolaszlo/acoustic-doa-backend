@@ -57,16 +57,6 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.static(path.join(__dirname, 'public')));
 
-  const candidateDistPaths = [
-    process.env.DASHBOARD_DIST_PATH ? path.resolve(process.env.DASHBOARD_DIST_PATH) : null,
-    path.join(__dirname, 'public', 'dashboard'),
-    path.resolve(__dirname, '../acoustic-doa-dashboard/dist'),
-  ].filter(Boolean);
-  const dashboardDistPath = candidateDistPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || null;
-  if (dashboardDistPath) {
-    app.use(express.static(dashboardDistPath, { index: false }));
-  }
-
   // 4. Body Parsers
   // Raw octet-stream parser for ESP32 high-speed binary batches (12B header + 20B records)
   app.use(express.raw({ type: 'application/octet-stream', limit: '1mb' }));
@@ -99,7 +89,7 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   }
 
   // 6. Mount Root & Healthcheck Routes
-  app.use('/', createIndexRoutes(deviceService, dashboardDistPath));
+  app.use('/', createIndexRoutes(deviceService));
 
   // 7. Mount API v1 Routers
   const apiRouter = express.Router();

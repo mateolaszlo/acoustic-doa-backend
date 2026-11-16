@@ -53,11 +53,8 @@ bash certs/generate_certs.sh
 bash certs/generate_certs.sh --force
 ```
 
-### 4. Build Dashboard & Run Server
+### 4. Run Server
 ```bash
-# Build the React dashboard production bundle (served over HTTPS at /)
-npm run build:dashboard
-
 # Production mode (runs bin/www directly)
 npm start
 
@@ -67,8 +64,8 @@ npm run dev
 
 The server starts two gateways:
 - **HTTP Ingestion (ESP32):** `http://localhost:3000`
-- **HTTPS Web Dashboard UI:** `https://localhost:3443/` (when `../acoustic-doa-dashboard/dist` is built)
-- **HTTPS Gateway Status Page:** `https://localhost:3443/status`
+- **HTTPS Client & API Gateway:** `https://localhost:3443/`
+- **Gateway Status Page:** `https://localhost:3443/` (or `http://localhost:3000/`)
 - **Interactive Swagger Documentation:** `https://localhost:3443/api/docs`
 
 ### 5. Run Synthetic ESP32 Simulator

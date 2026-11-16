@@ -339,24 +339,15 @@ describe('Acoustic DOA REST API Endpoints', () => {
     expect(data.endpoints.tracks).toBe('/api/v1/devices/:device_id/tracks');
   });
 
-  it('serves the EJS Gateway Status page at GET /status', async () => {
-    const res = await fetch(`${baseUrl}/status`);
+  it('serves the EJS Gateway Status page at GET /', async () => {
+    const res = await fetch(`${baseUrl}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
     const html = await res.text();
     expect(html).toContain('Acoustic DOA Gateway');
   });
 
-  it('serves built dashboard index.html at GET / when dist/ exists', async () => {
-    const res = await fetch(`${baseUrl}/`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('text/html');
-    const html = await res.text();
-    expect(html).toContain('<div id="root"></div>');
-    expect(html).toContain('Acoustic DOA');
-  });
-
-  it('serves dashboard and API over HTTPS with SAN certificate validation', async () => {
+  it('serves Gateway Status and API over HTTPS with SAN certificate validation', async () => {
     const keyPem = fs.readFileSync(path.resolve(process.cwd(), 'certs/server.key'));
     const certPem = fs.readFileSync(path.resolve(process.cwd(), 'certs/server.cert'));
 
@@ -383,7 +374,7 @@ describe('Acoustic DOA REST API Endpoints', () => {
     try {
       const rootRes = await getOverHttps('/');
       expect(rootRes.status).toBe(200);
-      expect(rootRes.body).toContain('<div id="root"></div>');
+      expect(rootRes.body).toContain('Acoustic DOA Gateway');
 
       const healthRes = await getOverHttps('/health');
       expect(healthRes.status).toBe(200);
