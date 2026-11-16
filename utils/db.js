@@ -22,6 +22,17 @@ function requireConfigValue(key, testFallback) {
   throw new Error(`Missing required environment variable: ${key}`);
 }
 
+export function insertDefaultCalibration(db, deviceId, now = new Date().toISOString()) {
+  db.prepare(`
+    INSERT INTO device_calibration (
+      device_id, microphone_distance_m, sample_rate, window_size,
+      correlation_threshold, sound_level_threshold_db, db_spl_offset,
+      angle_offset_deg, adaptive_threshold_enabled, snr_margin_db,
+      sector_width_deg, sector_hysteresis_deg, tracker_hold_timeout_ms, updated_at
+    ) VALUES (?, 0.082, 44100, 1024, 0.40, 55.0, 96.5, 0.0, 1, 8.0, 15.0, 3.0, 2500, ?)
+  `).run(deviceId, now);
+}
+
 export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
   if (instance && instance.open) {
     return instance;
@@ -151,18 +162,10 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
       INSERT INTO devices (id, name, api_key, created_at, last_seen_at, clock_status, firmware_version)
       VALUES (1, 'ESP32 DOA Array #1', ?, ?, ?, 'UNKNOWN', '1.0.0')
     `);
-    const insertCalib = db.prepare(`
-      INSERT INTO device_calibration (
-        device_id, microphone_distance_m, sample_rate, window_size,
-        correlation_threshold, sound_level_threshold_db, db_spl_offset,
-        angle_offset_deg, adaptive_threshold_enabled, snr_margin_db,
-        sector_width_deg, sector_hysteresis_deg, tracker_hold_timeout_ms, updated_at
-      ) VALUES (1, 0.082, 44100, 1024, 0.40, 55.0, 96.5, 0.0, 1, 8.0, 15.0, 3.0, 2500, ?)
-    `);
 
     db.transaction(() => {
       insertDevice.run(defaultApiKey, now, now);
-      insertCalib.run(now);
+      insertDefaultCalibration(db, 1, now);
     })();
 
     console.log(`[DB] Seeded initial device 1 (API key: ${defaultApiKey})`);
@@ -194,12 +197,11 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
     const studioCount = db.prepare('SELECT COUNT(*) as count FROM device_studio_config WHERE device_id = 1').get().count;
     if (studioCount === 0) {
       const now = new Date().toISOString();
-      const insertStudio = db.prepare(`
+      db.prepare(`
         INSERT INTO device_studio_config (
           device_id, room_layout_json, cameras_json, director_config_json, live_cam_id, updated_at
         ) VALUES (1, ?, ?, ?, 'cam-front', ?)
-      `);
-      insertStudio.run(
+      `).run(
         JSON.stringify(DEFAULT_ROOM_LAYOUT),
         JSON.stringify(DEFAULT_VIRTUAL_CAMERAS),
         JSON.stringify(DEFAULT_DIRECTOR_CONFIG),
@@ -212,46 +214,31 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
   }
 
   // 2. Seed default admin and viewer accounts from env/config if missing
-  const bcryptRounds = process.env.VITEST ? 10 : 12;
+  const bcryptRounds = isTestEnvironment() ? 10 : 12;
   const insertUser = db.prepare(`
     INSERT INTO users (username, email, password_hash, role, created_at, last_login_at)
     VALUES (?, ?, ?, ?, ?, NULL)
   `);
+  const countByRoleStmt = db.prepare('SELECT COUNT(*) as count FROM users WHERE role = ?');
   const findUserStmt = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?');
 
-  const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get().count;
-  if (adminCount === 0) {
-    const adminUser = requireConfigValue('DEFAULT_ADMIN_USER', 'admin').toLowerCase();
-    const adminEmail = requireConfigValue('DEFAULT_ADMIN_EMAIL', 'admin@acoustic-doa.local').toLowerCase();
-    const adminPassword = requireConfigValue('DEFAULT_ADMIN_PASSWORD', 'admin123');
-    if (!findUserStmt.get(adminUser, adminEmail)) {
-      const hash = bcrypt.hashSync(adminPassword, bcryptRounds);
-      insertUser.run(adminUser, adminEmail, hash, 'admin', new Date().toISOString());
-      console.log(`[DB] Seeded initial administrator: ${adminUser} (role: admin)`);
-    }
-  }
+  const defaultAccounts = [
+    { role: 'admin', label: 'administrator', prefix: 'DEFAULT_ADMIN', userFb: 'admin', emailFb: 'admin@acoustic-doa.local', passFb: 'admin123' },
+    { role: 'viewer', label: 'viewer', prefix: 'DEFAULT_VIEWER', userFb: 'viewer', emailFb: 'viewer@acoustic-doa.local', passFb: 'viewer123' },
+  ];
 
-  const viewerCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'viewer'").get().count;
-  if (viewerCount === 0) {
-    const viewerUser = requireConfigValue('DEFAULT_VIEWER_USER', 'viewer').toLowerCase();
-    const viewerEmail = requireConfigValue('DEFAULT_VIEWER_EMAIL', 'viewer@acoustic-doa.local').toLowerCase();
-    const viewerPassword = requireConfigValue('DEFAULT_VIEWER_PASSWORD', 'viewer123');
-    if (!findUserStmt.get(viewerUser, viewerEmail)) {
-      const hash = bcrypt.hashSync(viewerPassword, bcryptRounds);
-      insertUser.run(viewerUser, viewerEmail, hash, 'viewer', new Date().toISOString());
-      console.log(`[DB] Seeded initial viewer: ${viewerUser} (role: viewer)`);
+  for (const acct of defaultAccounts) {
+    if (countByRoleStmt.get(acct.role).count > 0) continue;
+    const username = requireConfigValue(`${acct.prefix}_USER`, acct.userFb).toLowerCase();
+    const email = requireConfigValue(`${acct.prefix}_EMAIL`, acct.emailFb).toLowerCase();
+    const password = requireConfigValue(`${acct.prefix}_PASSWORD`, acct.passFb);
+    if (!findUserStmt.get(username, email)) {
+      const hash = bcrypt.hashSync(password, bcryptRounds);
+      insertUser.run(username, email, hash, acct.role, new Date().toISOString());
+      console.log(`[DB] Seeded initial ${acct.label}: ${username} (role: ${acct.role})`);
     }
   }
 
   instance = db;
   return db;
 }
-
-export function getDatabase() {
-  if (!instance || !instance.open) {
-    return initDatabase();
-  }
-  return instance;
-}
-
-export default getDatabase;

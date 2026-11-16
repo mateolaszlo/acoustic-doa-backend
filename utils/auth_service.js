@@ -1,8 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { isTestEnvironment } from './env.js';
-
-const PLACEHOLDER_JWT_SECRET = 'replace-with-a-long-random-secret';
+import { PLACEHOLDER_JWT_SECRET, isTestEnvironment } from './env.js';
 
 export function getJwtSecret() {
   const configured = process.env.JWT_SECRET ? process.env.JWT_SECRET.trim() : '';
@@ -16,7 +14,7 @@ export function getJwtSecret() {
 }
 
 export const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
-const BCRYPT_ROUNDS = process.env.VITEST ? 10 : 12;
+const BCRYPT_ROUNDS = isTestEnvironment() ? 10 : 12;
 const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,32}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -136,6 +134,22 @@ export class AuthService {
       .all();
   }
 
+  _requireModifiableUser(userId, actionLabel) {
+    const user = this.getUserById(userId);
+    if (!user) {
+      throw new Error(`User #${userId} not found`);
+    }
+    if (user.role === 'admin') {
+      const adminCount = this.db
+        .prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'")
+        .get().count;
+      if (adminCount <= 1) {
+        throw new Error(`Cannot ${actionLabel} the only remaining administrator`);
+      }
+    }
+    return user;
+  }
+
   updateUserRole(userId, newRole) {
     if (!['admin', 'viewer'].includes(newRole)) {
       throw new Error("Role must be either 'admin' or 'viewer'");
@@ -145,15 +159,8 @@ export class AuthService {
     if (!user) {
       throw new Error(`User #${userId} not found`);
     }
-
-    // Protect against demoting the last admin
-    if (user.role === 'admin' && newRole !== 'admin') {
-      const adminCount = this.db
-        .prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'")
-        .get().count;
-      if (adminCount <= 1) {
-        throw new Error('Cannot demote the only remaining administrator');
-      }
+    if (newRole !== 'admin') {
+      this._requireModifiableUser(userId, 'demote');
     }
 
     this.db.prepare('UPDATE users SET role = ? WHERE id = ?').run(newRole, userId);
@@ -161,24 +168,8 @@ export class AuthService {
   }
 
   deleteUser(userId) {
-    const user = this.getUserById(userId);
-    if (!user) {
-      throw new Error(`User #${userId} not found`);
-    }
-
-    // Protect against deleting the last admin
-    if (user.role === 'admin') {
-      const adminCount = this.db
-        .prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'")
-        .get().count;
-      if (adminCount <= 1) {
-        throw new Error('Cannot delete the only remaining administrator');
-      }
-    }
-
+    this._requireModifiableUser(userId, 'delete');
     this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
     return { success: true, deleted_user_id: userId };
   }
 }
-
-export default AuthService;

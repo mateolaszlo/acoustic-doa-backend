@@ -22,10 +22,10 @@ export function createMeasurementRoutes(
   multiTargetTracker = null,
   ptzDirectorService = null,
   spatialZoneService = null,
-  authMiddleware = null
+  authMiddleware
 ) {
   const router = Router();
-  const authGuard = authMiddleware ? [authMiddleware.authenticateJWT] : [];
+  const { requireAuth } = authMiddleware;
 
   /**
    * POST /api/v1/measurements
@@ -152,7 +152,7 @@ export function createMeasurementRoutes(
    * GET /api/v1/devices/:device_id/tracks
    * Retrieve active and coasting tracked sound sources (Authenticated)
    */
-  router.get('/devices/:device_id/tracks', ...authGuard, (req, res) => {
+  router.get('/devices/:device_id/tracks', ...requireAuth, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
@@ -176,7 +176,7 @@ export function createMeasurementRoutes(
    * GET /api/v1/devices/:device_id/measurements/latest
    * Poll latest measurements (REST fallback, Authenticated)
    */
-  router.get('/devices/:device_id/measurements/latest', ...authGuard, (req, res) => {
+  router.get('/devices/:device_id/measurements/latest', ...requireAuth, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
@@ -204,7 +204,7 @@ export function createMeasurementRoutes(
    * GET /api/v1/devices/:device_id/measurements
    * Historical query with filtering (Authenticated)
    */
-  router.get('/devices/:device_id/measurements', ...authGuard, (req, res) => {
+  router.get('/devices/:device_id/measurements', ...requireAuth, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
@@ -237,7 +237,7 @@ export function createMeasurementRoutes(
    * GET /api/v1/devices/:device_id/count
    * Global all-time measurement count for a device (Authenticated)
    */
-  router.get('/devices/:device_id/count', ...authGuard, (req, res) => {
+  router.get('/devices/:device_id/count', ...requireAuth, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
@@ -255,7 +255,7 @@ export function createMeasurementRoutes(
    * GET /api/v1/devices/:device_id/stats
    * Aggregated acoustic statistics (36 angular bins, Authenticated)
    */
-  router.get('/devices/:device_id/stats', ...authGuard, (req, res) => {
+  router.get('/devices/:device_id/stats', ...requireAuth, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
@@ -274,5 +274,3 @@ export function createMeasurementRoutes(
 
   return router;
 }
-
-export default createMeasurementRoutes;

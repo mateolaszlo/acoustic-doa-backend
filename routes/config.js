@@ -2,16 +2,15 @@ import { Router } from 'express';
 import { sseBroadcaster } from '../utils/sse_broadcaster.js';
 import { sendError, parseDeviceId, handleUnexpectedRouteError } from '../utils/http_errors.js';
 
-export function createConfigRoutes(calibrationService, authMiddleware = null) {
+export function createConfigRoutes(calibrationService, authMiddleware) {
   const router = Router();
-  const authGuard = authMiddleware ? [authMiddleware.authenticateJWT] : [];
-  const adminGuard = authMiddleware ? [authMiddleware.authenticateJWT, authMiddleware.requireRole('admin')] : [];
+  const { requireAuth, requireAdmin } = authMiddleware;
 
   /**
    * GET /api/v1/devices/:device_id/config
    * Retrieve current configuration (Authenticated Viewer / Admin)
    */
-  router.get('/devices/:device_id/config', ...authGuard, (req, res) => {
+  router.get('/devices/:device_id/config', ...requireAuth, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
@@ -33,7 +32,7 @@ export function createConfigRoutes(calibrationService, authMiddleware = null) {
    * PUT /api/v1/devices/:device_id/config
    * Update calibration parameters (Requires Admin Role)
    */
-  router.put('/devices/:device_id/config', ...adminGuard, (req, res) => {
+  router.put('/devices/:device_id/config', ...requireAdmin, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
@@ -61,7 +60,7 @@ export function createConfigRoutes(calibrationService, authMiddleware = null) {
    * POST /api/v1/devices/:device_id/calibrate/zero-angle
    * Trigger zero-angle calibration trim calculation (Requires Admin Role)
    */
-  router.post('/devices/:device_id/calibrate/zero-angle', ...adminGuard, (req, res) => {
+  router.post('/devices/:device_id/calibrate/zero-angle', ...requireAdmin, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be a positive integer');
@@ -94,5 +93,3 @@ export function createConfigRoutes(calibrationService, authMiddleware = null) {
 
   return router;
 }
-
-export default createConfigRoutes;

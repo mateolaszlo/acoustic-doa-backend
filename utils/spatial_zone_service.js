@@ -128,5 +128,3 @@ export class SpatialZoneService {
     };
   }
 }
-
-export default SpatialZoneService;

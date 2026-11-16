@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../app.js';
-import { assertRuntimeEnv } from '../utils/env.js';
+import { assertRuntimeEnv, isHttpsDisabled } from '../utils/env.js';
 
 try {
   assertRuntimeEnv();
@@ -25,7 +25,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const HTTP_PORT = parseInt(process.env.PORT_HTTP, 10);
-const HTTPS_PORT = process.env.PORT_HTTPS ? parseInt(process.env.PORT_HTTPS, 10) : 3443;
+const HTTPS_PORT = parseInt(process.env.PORT_HTTPS, 10);
 const DB_PATH = process.env.DATABASE_PATH;
 
 const app = createApp(DB_PATH);
@@ -53,9 +53,9 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
 // 2. Start HTTPS Server (Web Visualizer Dashboard and management clients)
 const certKeyPath = path.resolve(__dirname, '../certs/server.key');
 const certCrtPath = path.resolve(__dirname, '../certs/server.cert');
-const isHttpsDisabled = process.env.DISABLE_HTTPS === 'true' || process.env.ENABLE_HTTPS === 'false';
+const httpsDisabled = isHttpsDisabled();
 
-if (!isHttpsDisabled && fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)) {
+if (!httpsDisabled && fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)) {
   try {
     const httpsOptions = {
       key: fs.readFileSync(certKeyPath),
@@ -88,7 +88,7 @@ if (!isHttpsDisabled && fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)
   } catch (err) {
     console.warn(`[WARN] Failed to load TLS certificates (${err.message}); continuing in HTTP-only mode.`);
   }
-} else if (isHttpsDisabled) {
+} else if (httpsDisabled) {
   console.log('[HTTPS] HTTPS disabled via configuration (DISABLE_HTTPS=true); running in HTTP-only mode.');
 } else {
   console.log('[HTTPS] Notice: No TLS certificates found in certs/; running in HTTP-only mode.');

@@ -222,5 +222,3 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db', opti
 
   return app;
 }
-
-export default createApp;

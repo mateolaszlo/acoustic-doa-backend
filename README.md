@@ -9,7 +9,7 @@ High-performance REST API and Server-Sent Events (SSE) streaming server for the 
 - **Standard Course Architecture:** Matches the university course structure (*Vaja 2, 3 in 4*):
   - `bin/www`: Dual-port startup script (HTTP + HTTPS listeners, graceful error handling).
   - `app.js`: Express application configuration, middleware, and route mounting.
-  - `routes/`: Modular endpoints (`devices.js`, `measurements.js`, `config.js`, `stream.js`, `index.js`).
+  - `routes/`: Modular endpoints (`devices.js`, `measurements.js`, `config.js`, `stream.js`, `auth.js`, `users.js`, `index.js`).
   - `utils/`: Database management (`db.js`), binary Little-Endian packet decoder (`binary_parser.js`), input validator, and SSE broadcaster.
   - `views/`: EJS templates for the web landing status page (`index.ejs`) and error views.
   - `public/`: Static documentation assets and OpenAPI specification (`openapi.yaml`).

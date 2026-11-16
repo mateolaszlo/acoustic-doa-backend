@@ -1,12 +1,11 @@
 import { Router } from 'express';
+import { sendError, parsePositiveIntId, handleUnexpectedRouteError } from '../utils/http_errors.js';
 
 export function createUserRoutes(authService, authMiddleware) {
   const router = Router();
-  const { authenticateJWT, requireRole } = authMiddleware;
 
   // Protect all user management endpoints: Requires valid Admin JWT
-  router.use(authenticateJWT);
-  router.use(requireRole('admin'));
+  router.use(...authMiddleware.requireAdmin);
 
   /**
    * GET /api/v1/users
@@ -17,13 +16,7 @@ export function createUserRoutes(authService, authMiddleware) {
       const users = authService.listUsers();
       return res.status(200).json({ users });
     } catch (err) {
-      return res.status(500).json({
-        error: {
-          code: 'USER_LIST_FAILED',
-          message: err.message,
-          status: 500,
-        },
-      });
+      return handleUnexpectedRouteError(res, err, 'Users:List', 'USER_LIST_FAILED');
     }
   });
 
@@ -32,19 +25,12 @@ export function createUserRoutes(authService, authMiddleware) {
    * Promote or demote user role (admin only)
    */
   router.patch('/:id/role', (req, res) => {
-    const userId = parseInt(req.params.id, 10);
-    const { role } = req.body || {};
-
-    if (isNaN(userId)) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_USER_ID',
-          message: 'User ID must be an integer',
-          status: 400,
-        },
-      });
+    const userId = parsePositiveIntId(req.params.id);
+    if (userId === null) {
+      return sendError(res, 400, 'INVALID_USER_ID', 'User ID must be a positive integer');
     }
 
+    const { role } = req.body || {};
     try {
       const updatedUser = authService.updateUserRole(userId, role);
       return res.status(200).json({
@@ -52,13 +38,7 @@ export function createUserRoutes(authService, authMiddleware) {
         user: updatedUser,
       });
     } catch (err) {
-      return res.status(400).json({
-        error: {
-          code: 'ROLE_UPDATE_FAILED',
-          message: err.message,
-          status: 400,
-        },
-      });
+      return sendError(res, 400, 'ROLE_UPDATE_FAILED', err.message);
     }
   });
 
@@ -67,33 +47,18 @@ export function createUserRoutes(authService, authMiddleware) {
    * Revoke/delete a user account (admin only)
    */
   router.delete('/:id', (req, res) => {
-    const userId = parseInt(req.params.id, 10);
-
-    if (isNaN(userId)) {
-      return res.status(400).json({
-        error: {
-          code: 'INVALID_USER_ID',
-          message: 'User ID must be an integer',
-          status: 400,
-        },
-      });
+    const userId = parsePositiveIntId(req.params.id);
+    if (userId === null) {
+      return sendError(res, 400, 'INVALID_USER_ID', 'User ID must be a positive integer');
     }
 
     try {
       const result = authService.deleteUser(userId);
       return res.status(200).json(result);
     } catch (err) {
-      return res.status(400).json({
-        error: {
-          code: 'DELETE_USER_FAILED',
-          message: err.message,
-          status: 400,
-        },
-      });
+      return sendError(res, 400, 'DELETE_USER_FAILED', err.message);
     }
   });
 
   return router;
 }
-
-export default createUserRoutes;

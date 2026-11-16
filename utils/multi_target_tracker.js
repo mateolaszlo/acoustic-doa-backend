@@ -11,7 +11,6 @@
 export const TRACK_STATE_TENTATIVE = 'TENTATIVE';
 export const TRACK_STATE_ACTIVE = 'ACTIVE';
 export const TRACK_STATE_COASTING = 'COASTING';
-export const TRACK_STATE_DELETED = 'DELETED';
 
 export const GATE_MAX_ANGLE_DEG = 25.0; // Aligned with firmware DOA_MIN_SOURCE_SEPARATION_DEG
 export const GATE_MAHALANOBIS_CHI2 = 16.0; // 4-sigma gating threshold
@@ -48,7 +47,6 @@ export class AcousticTrack {
     this.lastHitMs = timestampMs;
     this.lastPredictMs = timestampMs;
     this.hits = 1;
-    this.misses = 0;
 
     // Discrete sector tracker properties
     this.sectorId = initialDetection.sectorId !== undefined ? initialDetection.sectorId : null;
@@ -151,7 +149,6 @@ export class AcousticTrack {
 
     this.hits++;
     this.lastHitMs = timestampMs;
-    this.misses = 0;
   }
 }
 

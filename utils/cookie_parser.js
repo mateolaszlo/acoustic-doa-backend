@@ -28,5 +28,3 @@ export function parseCookies(cookieHeader) {
 
   return cookies;
 }
-
-export default parseCookies;

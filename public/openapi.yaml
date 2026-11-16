@@ -445,7 +445,6 @@ paths:
       tags:
         - Device Management
       security:
-        - {}
         - BearerAuth: []
       responses:
         '200':
@@ -642,10 +641,12 @@ paths:
   /devices/{device_id}/zones:
     get:
       summary: Get Spatial Zones
-      description: Retrieve geofenced room sectors and acoustic zones defined for this device.
+      description: Retrieve geofenced room sectors and acoustic zones defined for this device (Authenticated Viewer / Admin).
       operationId: getDeviceSpatialZones
       tags:
         - Spatial Intelligence
+      security:
+        - BearerAuth: []
       parameters:
         - name: device_id
           in: path
@@ -719,10 +720,12 @@ paths:
   /devices/{device_id}/studio:
     get:
       summary: Get Studio Configuration
-      description: Retrieve conference room layout, virtual cameras, director configuration, and authoritative PTZ telemetry (Public / Viewer / Admin).
+      description: Retrieve conference room layout, virtual cameras, director configuration, and authoritative PTZ telemetry (Authenticated Viewer / Admin).
       operationId: getDeviceStudioConfig
       tags:
         - Spatial Intelligence
+      security:
+        - BearerAuth: []
       parameters:
         - name: device_id
           in: path
@@ -884,7 +887,7 @@ paths:
           description: List of platform users
 
   /users/{id}/role:
-    put:
+    patch:
       summary: Update User Role (Admin only)
       operationId: updateUserRole
       tags:
@@ -1370,7 +1373,7 @@ components:
       properties:
         tableShape:
           type: string
-          enum: [oval, round, ushape]
+          enum: [oval, round, ushape, hollow_square]
           example: oval
         tableWidthRatio:
           type: number

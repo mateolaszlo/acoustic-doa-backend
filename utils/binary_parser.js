@@ -12,10 +12,8 @@ export const MEASUREMENT_BATCH_CRC_SIZE = 4;
 
 export const CLOCK_FLAG_UTC_SYNCHRONIZED = 0x0001;
 export const CLOCK_FLAG_SERVER_SYNCHRONIZED = 0x0002;
-export const CLOCK_FLAG_SERVER_MIDPOINT = 0x0003;
 export const CLOCK_FLAG_MONOTONIC_UPTIME = 0x0004;
 
-export const SECTOR_EVENT_NONE = 0;
 export const SECTOR_EVENT_ENTER = 1;
 export const SECTOR_EVENT_MOVE = 2;
 export const SECTOR_EVENT_HEARTBEAT = 3;
@@ -214,7 +212,7 @@ export function parseBinaryBatch(buffer) {
       slotId,
       sectorId,
       eventType,
-      eventTypeName: SECTOR_EVENT_NAMES[eventType] || 'UNKNOWN',
+      eventTypeName: SECTOR_EVENT_NAMES[eventType],
       activeSources,
       delayUs,
       soundLevelDb,

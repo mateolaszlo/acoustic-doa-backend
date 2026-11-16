@@ -2,10 +2,14 @@
  * Environment configuration loader and fail-fast validator.
  */
 
-const PLACEHOLDER_JWT_SECRET = 'replace-with-a-long-random-secret';
+export const PLACEHOLDER_JWT_SECRET = 'replace-with-a-long-random-secret';
 
 export function isTestEnvironment(env = process.env) {
   return Boolean(env.VITEST || env.NODE_ENV === 'test');
+}
+
+export function isHttpsDisabled(env = process.env) {
+  return env.DISABLE_HTTPS === 'true' || env.ENABLE_HTTPS === 'false';
 }
 
 export function loadEnvIfPresent() {
@@ -27,7 +31,7 @@ function isValidPort(raw) {
 
 export function validateEnv(env = process.env) {
   const issues = [];
-  const httpsDisabled = env.DISABLE_HTTPS === 'true' || env.ENABLE_HTTPS === 'false';
+  const httpsDisabled = isHttpsDisabled(env);
 
   if (!isValidPort(env.PORT_HTTP)) {
     issues.push('PORT_HTTP (must be an integer port 1..65535)');
@@ -80,10 +84,3 @@ export function assertRuntimeEnv() {
     validateEnv(process.env);
   }
 }
-
-export default {
-  isTestEnvironment,
-  loadEnvIfPresent,
-  validateEnv,
-  assertRuntimeEnv,
-};

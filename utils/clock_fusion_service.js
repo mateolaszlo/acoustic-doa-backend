@@ -28,9 +28,7 @@ export class ClockFusionService {
         lastRecvTimeMs: 0,
         lastClockSource: 'UNKNOWN',
         hasUtcLockInSession: false,
-        arrivalSamples: [],
         slew: null, // { residualMs, startRefMs, durationMs }
-        driftPpm: 0,
       };
       this._hydrateTrackerFromDb(deviceId, tracker);
       this.trackers.set(deviceId, tracker);
@@ -117,21 +115,15 @@ export class ClockFusionService {
     // 2. Classify regime & apply Plausibility Gate against future-timestamp poisoning
     const isMonoFlag = (clockFlags & 0x0004) !== 0 || baseRawMs < MIN_VALID_EPOCH_MS;
     const isServerFlag = !isMonoFlag && (clockFlags & 0x0002) !== 0;
-    const isSntpFlag = !isMonoFlag && !isServerFlag && (clockFlags & 0x0001) !== 0;
 
     // Guard against corrupt future UTC timestamps (> 15 min ahead of server recvTimeMs)
-    // while allowing standard historical/synthetic epoch timestamps in [MIN_VALID_EPOCH_MS, recvTimeMs + 15m]
-    const isFuturePoisoned =
-      !isMonoFlag && batchEndRawMs > recvTimeMs + MAX_FUTURE_DRIFT_MS && baseRawMs !== 1791830000000;
+    const isFuturePoisoned = !isMonoFlag && batchEndRawMs > recvTimeMs + MAX_FUTURE_DRIFT_MS;
 
     let effectiveRegime = 'MONOTONIC';
     let syncQuality = SYNC_QUALITY_MONOTONIC_EST;
 
     if (!isMonoFlag && !isFuturePoisoned) {
-      if (isSntpFlag) {
-        effectiveRegime = 'SNTP_UTC';
-        syncQuality = SYNC_QUALITY_SNTP_LOCKED;
-      } else if (isServerFlag) {
+      if (isServerFlag) {
         effectiveRegime = 'SERVER_UTC';
         syncQuality = SYNC_QUALITY_SERVER_SYNCED;
       } else {
@@ -143,7 +135,7 @@ export class ClockFusionService {
     let effectiveBaseMs = baseRawMs;
     let isOutOfOrderBatch = false;
 
-    if (effectiveRegime === 'MONOTONIC' || isFuturePoisoned) {
+    if (effectiveRegime === 'MONOTONIC') {
       // Check for hardware reboot vs out-of-order monotonic batch
       if (tracker.lastRawMonoEndMs !== null && baseRawMs < tracker.lastRawMonoEndMs) {
         const rollbackMs = tracker.lastRawMonoEndMs - baseRawMs;
@@ -154,7 +146,6 @@ export class ClockFusionService {
           tracker.bootEpochAnchorMs = null;
           tracker.lastRawMonoEndMs = null;
           tracker.hasUtcLockInSession = false;
-          tracker.arrivalSamples = [];
           tracker.slew = null;
         } else {
           isOutOfOrderBatch = true;
@@ -263,7 +254,6 @@ export class ClockFusionService {
       harmonizedRecords.push({
         ...r,
         timestampMs: unifiedTimestampMs,
-        unifiedTimestampMs,
         rawTimestampMs,
         syncQuality,
         sessionId: tracker.sessionId,

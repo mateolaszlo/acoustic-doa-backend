@@ -119,4 +119,3 @@ class SSEBroadcaster {
 }
 
 export const sseBroadcaster = new SSEBroadcaster();
-export default sseBroadcaster;

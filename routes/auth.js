@@ -94,10 +94,6 @@ export function createAuthRoutes(authService, authMiddleware, rateLimitOptions =
    */
   router.get('/me', authenticateJWT, (req, res) => {
     try {
-      if (!req.user || !req.user.id) {
-        return sendError(res, 401, 'UNAUTHORIZED', 'Invalid session context');
-      }
-
       const user = authService.getUserById(req.user.id);
       if (!user) {
         return sendError(res, 404, 'USER_NOT_FOUND', 'Authenticated user no longer exists');
@@ -111,5 +107,3 @@ export function createAuthRoutes(authService, authMiddleware, rateLimitOptions =
 
   return router;
 }
-
-export default createAuthRoutes;

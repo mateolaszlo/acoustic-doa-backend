@@ -32,97 +32,51 @@ export const TRACKER_HOLD_MAX_MS = 30000;
 export const SUPPORTED_SAMPLE_RATES = [44100, 48000];
 export const REQUIRED_WINDOW_SIZE = 1024;
 
+const CALIBRATION_RANGE_RULES = [
+  { key: 'microphone_distance_m', min: MIN_MIC_DISTANCE_M, max: MAX_MIC_DISTANCE_M, unit: ' m' },
+  { key: 'correlation_threshold', min: CORRELATION_THRESHOLD_MIN, max: CORRELATION_THRESHOLD_MAX, unit: '' },
+  { key: 'sound_level_threshold_db', min: SPL_THRESHOLD_MIN_DB, max: SPL_THRESHOLD_MAX_DB, unit: ' dB' },
+  { key: 'db_spl_offset', min: DB_SPL_OFFSET_MIN_DB, max: DB_SPL_OFFSET_MAX_DB, unit: ' dB' },
+  { key: 'angle_offset_deg', min: ANGLE_OFFSET_MIN_DEG, max: ANGLE_OFFSET_MAX_DEG, unit: ' deg' },
+  { key: 'snr_margin_db', min: SNR_MARGIN_MIN_DB, max: SNR_MARGIN_MAX_DB, unit: ' dB' },
+  { key: 'sector_width_deg', alias: 'sector_width', min: SECTOR_WIDTH_MIN_DEG, max: SECTOR_WIDTH_MAX_DEG, unit: ' deg' },
+  { key: 'sector_hysteresis_deg', alias: 'hysteresis_deg', min: SECTOR_HYSTERESIS_MIN_DEG, max: SECTOR_HYSTERESIS_MAX_DEG, unit: ' deg' },
+  { key: 'tracker_hold_timeout_ms', alias: 'hold_timeout_ms', min: TRACKER_HOLD_MIN_MS, max: TRACKER_HOLD_MAX_MS, unit: ' ms' },
+];
+
 export function validateCalibrationUpdate(input) {
   if (!input || typeof input !== 'object') {
     return { valid: false, error: 'Request body must be a valid JSON object' };
   }
 
-  if (input.microphone_distance_m !== undefined) {
-    if (!Number.isFinite(input.microphone_distance_m) ||
-        input.microphone_distance_m < MIN_MIC_DISTANCE_M ||
-        input.microphone_distance_m > MAX_MIC_DISTANCE_M) {
-      return { valid: false, error: `microphone_distance_m must be between ${MIN_MIC_DISTANCE_M} and ${MAX_MIC_DISTANCE_M} m` };
-    }
-  }
-
-  if (input.sample_rate !== undefined) {
-    if (!SUPPORTED_SAMPLE_RATES.includes(input.sample_rate)) {
-      return { valid: false, error: `sample_rate must be 44100 or 48000 Hz` };
-    }
+  if (input.sample_rate !== undefined && !SUPPORTED_SAMPLE_RATES.includes(input.sample_rate)) {
+    return { valid: false, error: 'sample_rate must be 44100 or 48000 Hz' };
   }
 
   if (input.window_size !== undefined && input.window_size !== REQUIRED_WINDOW_SIZE) {
     return { valid: false, error: `window_size must be ${REQUIRED_WINDOW_SIZE}` };
   }
 
-  if (input.correlation_threshold !== undefined) {
-    if (!Number.isFinite(input.correlation_threshold) ||
-        input.correlation_threshold < CORRELATION_THRESHOLD_MIN ||
-        input.correlation_threshold > CORRELATION_THRESHOLD_MAX) {
-      return { valid: false, error: `correlation_threshold must be between ${CORRELATION_THRESHOLD_MIN} and ${CORRELATION_THRESHOLD_MAX}` };
+  const resolvedValues = {};
+  for (const rule of CALIBRATION_RANGE_RULES) {
+    const val = input[rule.key] !== undefined ? input[rule.key] : (rule.alias ? input[rule.alias] : undefined);
+    if (val === undefined) continue;
+
+    if (!Number.isFinite(val) || val < rule.min || val > rule.max) {
+      return { valid: false, error: `${rule.key} must be between ${rule.min} and ${rule.max}${rule.unit}` };
     }
+    resolvedValues[rule.key] = val;
   }
 
-  if (input.sound_level_threshold_db !== undefined) {
-    if (!Number.isFinite(input.sound_level_threshold_db) ||
-        input.sound_level_threshold_db < SPL_THRESHOLD_MIN_DB ||
-        input.sound_level_threshold_db > SPL_THRESHOLD_MAX_DB) {
-      return { valid: false, error: `sound_level_threshold_db must be between ${SPL_THRESHOLD_MIN_DB} and ${SPL_THRESHOLD_MAX_DB} dB` };
-    }
-  }
-
-  if (input.db_spl_offset !== undefined) {
-    if (!Number.isFinite(input.db_spl_offset) ||
-        input.db_spl_offset < DB_SPL_OFFSET_MIN_DB ||
-        input.db_spl_offset > DB_SPL_OFFSET_MAX_DB) {
-      return { valid: false, error: `db_spl_offset must be between ${DB_SPL_OFFSET_MIN_DB} and ${DB_SPL_OFFSET_MAX_DB} dB` };
-    }
-  }
-
-  if (input.angle_offset_deg !== undefined) {
-    if (!Number.isFinite(input.angle_offset_deg) ||
-        input.angle_offset_deg < ANGLE_OFFSET_MIN_DEG ||
-        input.angle_offset_deg > ANGLE_OFFSET_MAX_DEG) {
-      return { valid: false, error: `angle_offset_deg must be between ${ANGLE_OFFSET_MIN_DEG} and ${ANGLE_OFFSET_MAX_DEG} deg` };
-    }
-  }
-
-  if (input.snr_margin_db !== undefined) {
-    if (!Number.isFinite(input.snr_margin_db) ||
-        input.snr_margin_db < SNR_MARGIN_MIN_DB ||
-        input.snr_margin_db > SNR_MARGIN_MAX_DB) {
-      return { valid: false, error: `snr_margin_db must be between ${SNR_MARGIN_MIN_DB} and ${SNR_MARGIN_MAX_DB} dB` };
-    }
-  }
-
-  const sectorWidth = input.sector_width_deg !== undefined ? input.sector_width_deg : input.sector_width;
-  if (sectorWidth !== undefined) {
-    if (!Number.isFinite(sectorWidth) ||
-        sectorWidth < SECTOR_WIDTH_MIN_DEG ||
-        sectorWidth > SECTOR_WIDTH_MAX_DEG) {
-      return { valid: false, error: `sector_width_deg must be between ${SECTOR_WIDTH_MIN_DEG} and ${SECTOR_WIDTH_MAX_DEG} deg` };
-    }
-  }
-
-  const sectorHysteresis = input.sector_hysteresis_deg !== undefined ? input.sector_hysteresis_deg : input.hysteresis_deg;
-  if (sectorHysteresis !== undefined) {
-    if (!Number.isFinite(sectorHysteresis) ||
-        sectorHysteresis < SECTOR_HYSTERESIS_MIN_DEG ||
-        sectorHysteresis > SECTOR_HYSTERESIS_MAX_DEG) {
-      return { valid: false, error: `sector_hysteresis_deg must be between ${SECTOR_HYSTERESIS_MIN_DEG} and ${SECTOR_HYSTERESIS_MAX_DEG} deg` };
-    }
-    if (sectorWidth !== undefined && sectorHysteresis > sectorWidth) {
-      return { valid: false, error: `sector_hysteresis_deg (${sectorHysteresis}) cannot exceed sector_width_deg (${sectorWidth})` };
-    }
-  }
-
-  const holdTimeout = input.tracker_hold_timeout_ms !== undefined ? input.tracker_hold_timeout_ms : input.hold_timeout_ms;
-  if (holdTimeout !== undefined) {
-    if (!Number.isFinite(holdTimeout) ||
-        holdTimeout < TRACKER_HOLD_MIN_MS ||
-        holdTimeout > TRACKER_HOLD_MAX_MS) {
-      return { valid: false, error: `tracker_hold_timeout_ms must be between ${TRACKER_HOLD_MIN_MS} and ${TRACKER_HOLD_MAX_MS} ms` };
-    }
+  if (
+    resolvedValues.sector_hysteresis_deg !== undefined &&
+    resolvedValues.sector_width_deg !== undefined &&
+    resolvedValues.sector_hysteresis_deg > resolvedValues.sector_width_deg
+  ) {
+    return {
+      valid: false,
+      error: `sector_hysteresis_deg (${resolvedValues.sector_hysteresis_deg}) cannot exceed sector_width_deg (${resolvedValues.sector_width_deg})`,
+    };
   }
 
   return { valid: true };

@@ -139,7 +139,7 @@ export class MeasurementService {
     const bins = new Array(36).fill(0);
 
     const angleStmt = this.db.prepare(`
-      SELECT angle_deg, confidence
+      SELECT angle_deg
       FROM measurements
       WHERE device_id = ? AND timestamp_ms >= ? AND (event_type IS NULL OR event_type != 4)
     `);
@@ -164,5 +164,3 @@ export class MeasurementService {
     };
   }
 }
-
-export default MeasurementService;

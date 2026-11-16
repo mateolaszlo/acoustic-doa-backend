@@ -167,5 +167,3 @@ export class CalibrationService {
     };
   }
 }
-
-export default CalibrationService;

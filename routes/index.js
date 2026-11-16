@@ -44,5 +44,3 @@ export function createIndexRoutes(deviceService) {
 
   return router;
 }
-
-export default createIndexRoutes;

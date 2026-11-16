@@ -9,6 +9,9 @@
  */
 
 import { safeJsonParse } from './http_errors.js';
+import { wrapAngle180 } from './multi_target_tracker.js';
+
+export { wrapAngle180 };
 
 export const BASE_ROOM_WIDTH = 850;
 export const BASE_ROOM_HEIGHT = 470;
@@ -84,193 +87,8 @@ export const DEFAULT_DIRECTOR_CONFIG = {
 /**
  * Normalizes an angle into [-180, 180) degrees.
  */
-export function wrapAngle180(deg) {
-  let a = (deg + 180) % 360;
-  if (a < 0) a += 360;
-  return a - 180;
-}
-
-/**
- * Returns shortest angular difference from current to target in [-180, 180) degrees.
- */
 export function shortestAngleDiff(targetDeg, currentDeg) {
   return wrapAngle180(targetDeg - currentDeg);
-}
-
-/**
- * Computes default symmetrical chair positions around the conference table
- * for a given room layout configuration and room dimensions.
- */
-export function computeDefaultChairs(layout, roomWidth = BASE_ROOM_WIDTH, roomHeight = BASE_ROOM_HEIGHT) {
-  const centerX = roomWidth / 2;
-  const centerY = roomHeight / 2 + 10;
-  const tableW = roomWidth * layout.tableWidthRatio;
-  const tableH = roomHeight * layout.tableHeightRatio;
-  const tableX = centerX - tableW / 2;
-  const tableY = centerY - tableH / 2;
-  const totalSeats = Math.max(2, layout.seatCount || 8);
-  const chairs = [];
-
-  if (layout.tableShape === 'round') {
-    const r = Math.min(tableW, tableH) * 0.48;
-    for (let i = 0; i < totalSeats; i++) {
-      const ang = (i / totalSeats) * Math.PI * 2 - Math.PI / 2;
-      const px = centerX + Math.cos(ang) * (r + 14);
-      const py = centerY + Math.sin(ang) * (r + 14);
-      chairs.push({
-        id: `chair-${i}`,
-        xRatio: Math.max(0.04, Math.min(0.96, px / roomWidth)),
-        yRatio: Math.max(0.04, Math.min(0.96, py / roomHeight)),
-      });
-    }
-    return chairs;
-  }
-
-  if (layout.tableShape === 'ushape') {
-    const sideSeats = Math.max(1, Math.floor(totalSeats * 0.35));
-    const bottomSeats = Math.max(1, totalSeats - sideSeats * 2);
-    let idCounter = 0;
-
-    // Left wing
-    for (let i = 0; i < sideSeats; i++) {
-      const cy = tableY + 24 + (i / Math.max(1, sideSeats - 1)) * (tableH - 48);
-      chairs.push({
-        id: `chair-${idCounter++}`,
-        xRatio: (tableX - 14) / roomWidth,
-        yRatio: cy / roomHeight,
-      });
-    }
-    // Right wing
-    for (let i = 0; i < sideSeats; i++) {
-      const cy = tableY + 24 + (i / Math.max(1, sideSeats - 1)) * (tableH - 48);
-      chairs.push({
-        id: `chair-${idCounter++}`,
-        xRatio: (tableX + tableW + 14) / roomWidth,
-        yRatio: cy / roomHeight,
-      });
-    }
-    // Bottom wing
-    for (let i = 0; i < bottomSeats; i++) {
-      const cx = tableX + 32 + (i / Math.max(1, bottomSeats - 1)) * (tableW - 64);
-      chairs.push({
-        id: `chair-${idCounter++}`,
-        xRatio: cx / roomWidth,
-        yRatio: (tableY + tableH + 14) / roomHeight,
-      });
-    }
-    return chairs;
-  }
-
-  if (layout.tableShape === 'hollow_square') {
-    if (totalSeats <= 4) {
-      const defaultPositions = [
-        { x: centerX, y: tableY - 14 },
-        { x: tableX + tableW + 14, y: centerY },
-        { x: centerX, y: tableY + tableH + 14 },
-        { x: tableX - 14, y: centerY },
-      ];
-      for (let i = 0; i < totalSeats; i++) {
-        chairs.push({
-          id: `chair-${i}`,
-          xRatio: defaultPositions[i].x / roomWidth,
-          yRatio: defaultPositions[i].y / roomHeight,
-        });
-      }
-      return chairs;
-    }
-
-    const perSide = Math.max(1, Math.floor(totalSeats / 4));
-    let idCounter = 0;
-    // North edge
-    for (let i = 0; i < perSide; i++) {
-      const t = perSide > 1 ? i / (perSide - 1) : 0.5;
-      const cx = tableX + 32 + t * (tableW - 64);
-      chairs.push({ id: `chair-${idCounter++}`, xRatio: cx / roomWidth, yRatio: (tableY - 14) / roomHeight });
-    }
-    // East edge
-    for (let i = 0; i < perSide; i++) {
-      const t = perSide > 1 ? i / (perSide - 1) : 0.5;
-      const cy = tableY + 32 + t * (tableH - 64);
-      chairs.push({ id: `chair-${idCounter++}`, xRatio: (tableX + tableW + 14) / roomWidth, yRatio: cy / roomHeight });
-    }
-    // South edge
-    for (let i = 0; i < perSide; i++) {
-      const t = perSide > 1 ? i / (perSide - 1) : 0.5;
-      const cx = tableX + 32 + t * (tableW - 64);
-      chairs.push({ id: `chair-${idCounter++}`, xRatio: cx / roomWidth, yRatio: (tableY + tableH + 14) / roomHeight });
-    }
-    // West edge
-    for (let i = 0; i < perSide; i++) {
-      const t = perSide > 1 ? i / (perSide - 1) : 0.5;
-      const cy = tableY + 32 + t * (tableH - 64);
-      chairs.push({ id: `chair-${idCounter++}`, xRatio: (tableX - 14) / roomWidth, yRatio: cy / roomHeight });
-    }
-    return chairs;
-  }
-
-  // Oval / Default
-  if (totalSeats === 2) {
-    chairs.push({
-      id: 'chair-0',
-      xRatio: centerX / roomWidth,
-      yRatio: (tableY - 14) / roomHeight,
-    });
-    chairs.push({
-      id: 'chair-1',
-      xRatio: centerX / roomWidth,
-      yRatio: (tableY + tableH + 14) / roomHeight,
-    });
-    return chairs;
-  }
-
-  if (totalSeats <= 4) {
-    const pts = [
-      { x: centerX, y: tableY - 14 },
-      { x: tableX + tableW + 14, y: centerY },
-      { x: centerX, y: tableY + tableH + 14 },
-      { x: tableX - 14, y: centerY },
-    ];
-    for (let i = 0; i < totalSeats; i++) {
-      chairs.push({
-        id: `chair-${i}`,
-        xRatio: pts[i].x / roomWidth,
-        yRatio: pts[i].y / roomHeight,
-      });
-    }
-    return chairs;
-  }
-
-  // totalSeats > 4 for Oval
-  chairs.push({
-    id: 'chair-0',
-    xRatio: (tableX - 14) / roomWidth,
-    yRatio: centerY / roomHeight,
-  });
-  chairs.push({
-    id: 'chair-1',
-    xRatio: (tableX + tableW + 14) / roomWidth,
-    yRatio: centerY / roomHeight,
-  });
-
-  const remaining = totalSeats - 2;
-  const perSide = Math.floor(remaining / 2);
-  let idCount = 2;
-  for (let i = 0; i < perSide; i++) {
-    const t = perSide > 1 ? i / (perSide - 1) : 0.5;
-    const cx = tableX + 36 + t * (tableW - 72);
-    chairs.push({
-      id: `chair-${idCount++}`,
-      xRatio: cx / roomWidth,
-      yRatio: (tableY - 14) / roomHeight,
-    });
-    chairs.push({
-      id: `chair-${idCount++}`,
-      xRatio: cx / roomWidth,
-      yRatio: (tableY + tableH + 14) / roomHeight,
-    });
-  }
-
-  return chairs;
 }
 
 /**
@@ -1009,5 +827,3 @@ export class PTZDirectorService {
     };
   }
 }
-
-export default PTZDirectorService;

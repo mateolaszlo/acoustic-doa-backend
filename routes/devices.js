@@ -13,10 +13,13 @@ export function createDeviceRoutes(
   ptzDirectorService = null
 ) {
   const router = Router();
-  const authGuard = authMiddleware ? [authMiddleware.authenticateJWT] : [];
-  const adminGuard = authMiddleware
-    ? [authMiddleware.authenticateJWT, authMiddleware.requireRole('admin')]
-    : [];
+  const { requireAuth, requireAdmin } = authMiddleware;
+
+  function resetDeviceTrackers(deviceId) {
+    clockFusionService?.resetTracker(deviceId);
+    multiTargetTracker?.resetDevice(deviceId);
+    ptzDirectorService?.resetDevice(deviceId);
+  }
 
   function requireDevice(res, rawDeviceId) {
     const deviceId = parseDeviceId(rawDeviceId);
@@ -38,7 +41,7 @@ export function createDeviceRoutes(
    * GET /api/v1/devices
    * List all registered devices (Authenticated; returns full details with api_key only for admin)
    */
-  router.get('/devices', ...authGuard, (req, res) => {
+  router.get('/devices', ...requireAuth, (req, res) => {
     try {
       const isAdmin = Boolean(req.user && req.user.role === 'admin');
       const devices = isAdmin
@@ -55,7 +58,7 @@ export function createDeviceRoutes(
    * POST /api/v1/devices
    * Register a new ESP32 planar array node (Admin only)
    */
-  router.post('/devices', ...adminGuard, (req, res) => {
+  router.post('/devices', ...requireAdmin, (req, res) => {
     try {
       const device = deviceService.createDevice(req.body || {});
       return res.status(201).json(device);
@@ -74,7 +77,7 @@ export function createDeviceRoutes(
    * PUT /api/v1/devices/:device_id
    * Update node metadata / rename (Admin only)
    */
-  router.put('/devices/:device_id', ...adminGuard, (req, res) => {
+  router.put('/devices/:device_id', ...requireAdmin, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be an integer');
@@ -98,7 +101,7 @@ export function createDeviceRoutes(
    * POST /api/v1/devices/:device_id/api-key/rotate
    * Generate and assign a new API key to the node (Admin only)
    */
-  router.post('/devices/:device_id/api-key/rotate', ...adminGuard, (req, res) => {
+  router.post('/devices/:device_id/api-key/rotate', ...requireAdmin, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be an integer');
@@ -119,7 +122,7 @@ export function createDeviceRoutes(
    * DELETE /api/v1/devices/:device_id
    * Decommission and delete a node (Admin only)
    */
-  router.delete('/devices/:device_id', ...adminGuard, (req, res) => {
+  router.delete('/devices/:device_id', ...requireAdmin, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be an integer');
@@ -127,15 +130,7 @@ export function createDeviceRoutes(
 
     try {
       const result = deviceService.deleteDevice(deviceId);
-      if (clockFusionService) {
-        clockFusionService.resetTracker(deviceId);
-      }
-      if (multiTargetTracker) {
-        multiTargetTracker.resetDevice(deviceId);
-      }
-      if (ptzDirectorService) {
-        ptzDirectorService.resetDevice(deviceId);
-      }
+      resetDeviceTrackers(deviceId);
       return res.status(200).json(result);
     } catch (err) {
       if (err?.message?.includes('not found')) {
@@ -152,7 +147,7 @@ export function createDeviceRoutes(
    * DELETE /api/v1/devices/:device_id/measurements
    * Purge historical measurements for a specific node (Admin only)
    */
-  router.delete('/devices/:device_id/measurements', ...adminGuard, (req, res) => {
+  router.delete('/devices/:device_id/measurements', ...requireAdmin, (req, res) => {
     const deviceId = parseDeviceId(req.params.device_id);
     if (deviceId === null) {
       return sendError(res, 400, 'INVALID_DEVICE_ID', 'Device ID must be an integer');
@@ -164,15 +159,7 @@ export function createDeviceRoutes(
 
     try {
       const result = measurementService.clearDeviceMeasurements(deviceId);
-      if (clockFusionService) {
-        clockFusionService.resetTracker(deviceId);
-      }
-      if (multiTargetTracker) {
-        multiTargetTracker.resetDevice(deviceId);
-      }
-      if (ptzDirectorService) {
-        ptzDirectorService.resetDevice(deviceId);
-      }
+      resetDeviceTrackers(deviceId);
       return res.status(200).json({
         success: true,
         device_id: deviceId,
@@ -228,7 +215,7 @@ export function createDeviceRoutes(
    * GET /api/v1/devices/:device_id/zones
    * Retrieve spatial zones / acoustic geofences for this device (Authenticated Viewer / Admin)
    */
-  router.get('/devices/:device_id/zones', ...authGuard, (req, res) => {
+  router.get('/devices/:device_id/zones', ...requireAuth, (req, res) => {
     try {
       const resolved = requireDevice(res, req.params.device_id);
       if (!resolved) return;
@@ -248,7 +235,7 @@ export function createDeviceRoutes(
    * PUT /api/v1/devices/:device_id/zones
    * Configure spatial zones for this device (Admin only)
    */
-  router.put('/devices/:device_id/zones', ...adminGuard, (req, res) => {
+  router.put('/devices/:device_id/zones', ...requireAdmin, (req, res) => {
     try {
       const resolved = requireDevice(res, req.params.device_id);
       if (!resolved) return;
@@ -283,7 +270,7 @@ export function createDeviceRoutes(
    * GET /api/v1/devices/:device_id/studio
    * Retrieve conference room layout, virtual cameras, director config, and live telemetry (Authenticated Viewer / Admin)
    */
-  router.get('/devices/:device_id/studio', ...authGuard, (req, res) => {
+  router.get('/devices/:device_id/studio', ...requireAuth, (req, res) => {
     try {
       const resolved = requireDevice(res, req.params.device_id);
       if (!resolved) return;
@@ -303,7 +290,7 @@ export function createDeviceRoutes(
    * PUT /api/v1/devices/:device_id/studio
    * Configure studio layout, cameras, director tuning, or live camera override (Admin only)
    */
-  router.put('/devices/:device_id/studio', ...adminGuard, (req, res) => {
+  router.put('/devices/:device_id/studio', ...requireAdmin, (req, res) => {
     try {
       const resolved = requireDevice(res, req.params.device_id);
       if (!resolved) return;
@@ -335,5 +322,3 @@ export function createDeviceRoutes(
 
   return router;
 }
-
-export default createDeviceRoutes;

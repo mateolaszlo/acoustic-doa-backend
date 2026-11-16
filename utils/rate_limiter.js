@@ -2,6 +2,8 @@
  * In-memory sliding-window rate limiter middleware (zero external dependencies).
  */
 
+import { sendError } from './http_errors.js';
+
 export function createRateLimiter({
   windowMs = 15 * 60 * 1000,
   max = 15,
@@ -41,13 +43,7 @@ export function createRateLimiter({
       const oldestMs = active[0];
       const retryAfterSec = Math.max(1, Math.ceil((oldestMs + windowMs - now) / 1000));
       res.setHeader('Retry-After', String(retryAfterSec));
-      return res.status(429).json({
-        error: {
-          code,
-          message,
-          status: 429,
-        },
-      });
+      return sendError(res, 429, code, message);
     }
 
     active.push(now);
@@ -55,5 +51,3 @@ export function createRateLimiter({
     return next();
   };
 }
-
-export default createRateLimiter;

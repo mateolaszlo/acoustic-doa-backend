@@ -168,7 +168,7 @@ Standard status codes:
 ---
 
 ### 4.4 Get & Update Device Configuration
-- **Method & Route:** `GET /devices/{device_id}/config` (Public)
+- **Method & Route:** `GET /devices/{device_id}/config` (Authenticated Viewer / Admin)
 - **Method & Route:** `PUT /devices/{device_id}/config` (Admin JWT required: `Authorization: Bearer <token>`)
 - **Request Body (PUT):**
   ```json
@@ -247,17 +247,17 @@ Standard status codes:
 ---
 
 ### 4.8 Spatial Geofenced Zones
-- **Method & Route:** `GET /devices/{device_id}/zones` (Public)
+- **Method & Route:** `GET /devices/{device_id}/zones` (Authenticated Viewer / Admin)
 - **Method & Route:** `PUT /devices/{device_id}/zones` (Admin JWT required)
 - **Description:** Retrieves or atomically replaces spatial room sectors (`Podium`, `Main Table`, `Priority`, `Ignore`, `Mute` / `Zone`, supporting circular wrap-around across $\pm 180^\circ$).
 
 ---
 
 ### 4.9 Studio Layout & PTZ Director Config
-- **Method & Route:** `GET /devices/{device_id}/studio` (Public)
+- **Method & Route:** `GET /devices/{device_id}/studio` (Authenticated Viewer / Admin)
 - **Method & Route:** `PUT /devices/{device_id}/studio` (Admin JWT required)
 - **Description:** Retrieves or updates the persistent conference studio configuration and authoritative PTZ director state (`roomLayout`, `1–3` virtual `cameras`, `directorConfig`, `liveCamId`, and optional `reset: true`).
-  - `roomLayout`: `tableShape` (`oval`, `round`, `ushape`), dimensions, `seatCount`, and optional `customChairs` (pass `null` to reset to perimeter seating).
+  - `roomLayout`: `tableShape` (`oval`, `round`, `ushape`, `hollow_square`), dimensions, `seatCount`, and optional `customChairs` (pass `null` to reset to perimeter seating).
   - `cameras`: Enforces $1 \le \text{cameras.length} \le 3$; updates are broadcast immediately via SSE (`event: studio_config`).
 
 ---
@@ -268,8 +268,8 @@ All node modification and provisioning endpoints require authentication with the
 
 ### 5.1 List Registered Nodes
 - **Method & Route:** `GET /devices`
-- **Headers:** Optional `Authorization: Bearer <token>`
-- **Description:** Unauthenticated clients receive sanitized node summaries without API keys; authenticated administrators receive full details including API keys and total stored event counts.
+- **Headers:** `Authorization: Bearer <token>` or authenticated `acoustic_session` cookie
+- **Description:** Viewer clients receive sanitized node summaries without API keys; administrators receive full details including API keys and total stored event counts.
 - **Admin Response `200 OK`:**
   ```json
   [
@@ -365,6 +365,6 @@ All node modification and provisioning endpoints require authentication with the
 
 ### 6.4 User Role Management (Admin only)
 - **Method & Route:** `GET /users` — List all registered platform users.
-- **Method & Route:** `PUT /users/{id}/role` — Promote or demote user role (`admin` or `viewer`).
+- **Method & Route:** `PATCH /users/{id}/role` — Promote or demote user role (`admin` or `viewer`).
 - **Method & Route:** `DELETE /users/{id}` — Remove a user account (cannot delete your own active admin account).
 

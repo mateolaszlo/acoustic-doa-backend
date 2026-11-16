@@ -4,6 +4,7 @@
  */
 
 import { parseCookies } from './cookie_parser.js';
+import { sendError } from './http_errors.js';
 
 export const SESSION_COOKIE_NAME = 'acoustic_session';
 
@@ -15,11 +16,7 @@ function extractToken(req) {
   }
 
   const cookies = parseCookies(req.headers['cookie']);
-  if (cookies[SESSION_COOKIE_NAME]) {
-    return cookies[SESSION_COOKIE_NAME];
-  }
-
-  return null;
+  return cookies[SESSION_COOKIE_NAME] || null;
 }
 
 export function createAuthMiddleware(authService) {
@@ -42,13 +39,12 @@ export function createAuthMiddleware(authService) {
   function authenticateJWT(req, res, next) {
     const token = extractToken(req);
     if (!token) {
-      return res.status(401).json({
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Authentication required. Please sign in to access this resource.',
-          status: 401,
-        },
-      });
+      return sendError(
+        res,
+        401,
+        'UNAUTHORIZED',
+        'Authentication required. Please sign in to access this resource.'
+      );
     }
 
     let user = null;
@@ -56,23 +52,10 @@ export function createAuthMiddleware(authService) {
       user = resolveActiveUser(token);
     } catch (err) {
       console.error('[AuthMiddleware] Token verification error:', err);
-      return res.status(401).json({
-        error: {
-          code: 'INVALID_TOKEN',
-          message: 'Provided session token is invalid or has expired',
-          status: 401,
-        },
-      });
     }
 
     if (!user) {
-      return res.status(401).json({
-        error: {
-          code: 'INVALID_TOKEN',
-          message: 'Provided session token is invalid or has expired',
-          status: 401,
-        },
-      });
+      return sendError(res, 401, 'INVALID_TOKEN', 'Provided session token is invalid or has expired');
     }
 
     req.user = user;
@@ -82,50 +65,26 @@ export function createAuthMiddleware(authService) {
   function requireRole(requiredRole) {
     return (req, res, next) => {
       if (!req.user) {
-        return res.status(401).json({
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Authentication required before permission check',
-            status: 401,
-          },
-        });
+        return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required before permission check');
       }
 
       if (req.user.role !== requiredRole) {
-        return res.status(403).json({
-          error: {
-            code: 'FORBIDDEN',
-            message: `Access denied. Action requires '${requiredRole}' role, but user has '${req.user.role}' role.`,
-            status: 403,
-          },
-        });
+        return sendError(
+          res,
+          403,
+          'FORBIDDEN',
+          `Access denied. Action requires '${requiredRole}' role, but user has '${req.user.role}' role.`
+        );
       }
 
       next();
     };
   }
 
-  function optionalJWT(req, _res, next) {
-    const token = extractToken(req);
-    if (token) {
-      try {
-        const user = resolveActiveUser(token);
-        if (user) {
-          req.user = user;
-        }
-      } catch (err) {
-        console.warn('[AuthMiddleware] Optional JWT verification failed:', err.message);
-      }
-    }
-    next();
-  }
-
   return {
     authenticateJWT,
     requireRole,
-    optionalJWT,
-    authService,
+    requireAuth: [authenticateJWT],
+    requireAdmin: [authenticateJWT, requireRole('admin')],
   };
 }
-
-export default createAuthMiddleware;
