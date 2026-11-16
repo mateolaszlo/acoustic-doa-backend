@@ -17,6 +17,7 @@ import { SpatialZoneService } from './utils/spatial_zone_service.js';
 import { PTZDirectorService } from './utils/ptz_director_service.js';
 import { AuthService } from './utils/auth_service.js';
 import { createAuthMiddleware } from './utils/auth_middleware.js';
+import { assertRuntimeEnv } from './utils/env.js';
 
 import { createIndexRoutes } from './routes/index.js';
 import { createDeviceRoutes } from './routes/devices.js';
@@ -61,6 +62,7 @@ function buildCorsOriginValidator() {
 }
 
 export function createApp(dbPath = process.env.DATABASE_PATH || './app.db', options = {}) {
+  assertRuntimeEnv();
   const app = express();
 
   // 1. Initialize SQLite Database & Service Layer

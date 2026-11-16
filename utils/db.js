@@ -8,11 +8,19 @@ import {
   DEFAULT_VIRTUAL_CAMERAS,
   DEFAULT_DIRECTOR_CONFIG,
 } from './ptz_director_service.js';
+import { isTestEnvironment } from './env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let instance = null;
+
+function requireConfigValue(key, testFallback) {
+  const val = process.env[key] ? String(process.env[key]).trim() : '';
+  if (val) return val;
+  if (isTestEnvironment()) return testFallback;
+  throw new Error(`Missing required environment variable: ${key}`);
+}
 
 export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
   if (instance && instance.open) {
@@ -138,7 +146,7 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
 
   if (row.count === 0) {
     const now = new Date().toISOString();
-    const defaultApiKey = process.env.DEFAULT_DEVICE_API_KEY || 'esp32-acoustic-doa-secret-key-1';
+    const defaultApiKey = requireConfigValue('DEFAULT_DEVICE_API_KEY', 'esp32-acoustic-doa-secret-key-1');
     const insertDevice = db.prepare(`
       INSERT INTO devices (id, name, api_key, created_at, last_seen_at, clock_status, firmware_version)
       VALUES (1, 'ESP32 DOA Array #1', ?, ?, ?, 'UNKNOWN', '1.0.0')
@@ -204,39 +212,35 @@ export function initDatabase(dbPath = process.env.DATABASE_PATH || './app.db') {
   }
 
   // 2. Seed default admin and viewer accounts from env/config if missing
-  try {
-    const bcryptRounds = process.env.VITEST ? 10 : 12;
-    const insertUser = db.prepare(`
-      INSERT INTO users (username, email, password_hash, role, created_at, last_login_at)
-      VALUES (?, ?, ?, ?, ?, NULL)
-    `);
-    const findUserStmt = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?');
+  const bcryptRounds = process.env.VITEST ? 10 : 12;
+  const insertUser = db.prepare(`
+    INSERT INTO users (username, email, password_hash, role, created_at, last_login_at)
+    VALUES (?, ?, ?, ?, ?, NULL)
+  `);
+  const findUserStmt = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?');
 
-    const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get().count;
-    if (adminCount === 0) {
-      const adminUser = (process.env.DEFAULT_ADMIN_USER || 'admin').trim().toLowerCase();
-      const adminEmail = (process.env.DEFAULT_ADMIN_EMAIL || 'admin@acoustic-doa.local').trim().toLowerCase();
-      const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
-      if (!findUserStmt.get(adminUser, adminEmail)) {
-        const hash = bcrypt.hashSync(adminPassword, bcryptRounds);
-        insertUser.run(adminUser, adminEmail, hash, 'admin', new Date().toISOString());
-        console.log(`[DB] Seeded initial administrator: ${adminUser} (role: admin)`);
-      }
+  const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get().count;
+  if (adminCount === 0) {
+    const adminUser = requireConfigValue('DEFAULT_ADMIN_USER', 'admin').toLowerCase();
+    const adminEmail = requireConfigValue('DEFAULT_ADMIN_EMAIL', 'admin@acoustic-doa.local').toLowerCase();
+    const adminPassword = requireConfigValue('DEFAULT_ADMIN_PASSWORD', 'admin123');
+    if (!findUserStmt.get(adminUser, adminEmail)) {
+      const hash = bcrypt.hashSync(adminPassword, bcryptRounds);
+      insertUser.run(adminUser, adminEmail, hash, 'admin', new Date().toISOString());
+      console.log(`[DB] Seeded initial administrator: ${adminUser} (role: admin)`);
     }
+  }
 
-    const viewerCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'viewer'").get().count;
-    if (viewerCount === 0) {
-      const viewerUser = (process.env.DEFAULT_VIEWER_USER || 'viewer').trim().toLowerCase();
-      const viewerEmail = (process.env.DEFAULT_VIEWER_EMAIL || 'viewer@acoustic-doa.local').trim().toLowerCase();
-      const viewerPassword = process.env.DEFAULT_VIEWER_PASSWORD || 'viewer123';
-      if (!findUserStmt.get(viewerUser, viewerEmail)) {
-        const hash = bcrypt.hashSync(viewerPassword, bcryptRounds);
-        insertUser.run(viewerUser, viewerEmail, hash, 'viewer', new Date().toISOString());
-        console.log(`[DB] Seeded initial viewer: ${viewerUser} (role: viewer)`);
-      }
+  const viewerCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'viewer'").get().count;
+  if (viewerCount === 0) {
+    const viewerUser = requireConfigValue('DEFAULT_VIEWER_USER', 'viewer').toLowerCase();
+    const viewerEmail = requireConfigValue('DEFAULT_VIEWER_EMAIL', 'viewer@acoustic-doa.local').toLowerCase();
+    const viewerPassword = requireConfigValue('DEFAULT_VIEWER_PASSWORD', 'viewer123');
+    if (!findUserStmt.get(viewerUser, viewerEmail)) {
+      const hash = bcrypt.hashSync(viewerPassword, bcryptRounds);
+      insertUser.run(viewerUser, viewerEmail, hash, 'viewer', new Date().toISOString());
+      console.log(`[DB] Seeded initial viewer: ${viewerUser} (role: viewer)`);
     }
-  } catch (err) {
-    console.warn('[DB] Users table check skipped:', err.message);
   }
 
   instance = db;

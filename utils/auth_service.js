@@ -1,21 +1,20 @@
-import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { isTestEnvironment } from './env.js';
 
-function resolveJwtSecret() {
-  if (process.env.JWT_SECRET && process.env.JWT_SECRET.trim().length >= 16) {
-    return process.env.JWT_SECRET.trim();
+const PLACEHOLDER_JWT_SECRET = 'replace-with-a-long-random-secret';
+
+export function getJwtSecret() {
+  const configured = process.env.JWT_SECRET ? process.env.JWT_SECRET.trim() : '';
+  if (configured.length >= 16 && configured !== PLACEHOLDER_JWT_SECRET) {
+    return configured;
   }
-  if (process.env.VITEST || process.env.NODE_ENV === 'test') {
+  if (isTestEnvironment()) {
     return 'acoustic-doa-test-jwt-secret-key-2026';
   }
-  console.warn(
-    '[SECURITY WARN] JWT_SECRET is not set (or <16 chars). Generated ephemeral runtime secret; sessions will reset on restart.'
-  );
-  return crypto.randomBytes(32).toString('hex');
+  throw new Error('JWT_SECRET must be configured in .env with at least 16 characters');
 }
 
-export const JWT_SECRET = resolveJwtSecret();
 export const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
 const BCRYPT_ROUNDS = process.env.VITEST ? 10 : 12;
 const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,32}$/;
@@ -27,12 +26,12 @@ export class AuthService {
   }
 
   generateToken(payload) {
-    return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY, algorithm: 'HS256' });
+    return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRY, algorithm: 'HS256' });
   }
 
   verifyToken(token) {
     try {
-      return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+      return jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
     } catch {
       return null;
     }

@@ -41,10 +41,10 @@ High-performance REST API and Server-Sent Events (SSE) streaming server for the 
 ### 2. Installation & Environment
 ```bash
 npm install
-cp .env.example .env   # Optional: customize ports, DB path, JWT_SECRET, or admin password
+cp .env.example .env   # Required: set ports, DB path, a strong JWT_SECRET (>=16 chars), and admin/viewer credentials
 ```
 
-On first boot with an empty database, the server seeds default administrator (`DEFAULT_ADMIN_*`) and viewer (`DEFAULT_VIEWER_*`) accounts plus device 1 (`esp32-acoustic-doa-secret-key-1`), all configurable via `.env`. Users must authenticate before accessing the dashboard APIs or SSE streams.
+The server **fails fast on startup** if required `.env` variables are missing or if `JWT_SECRET` still uses the example placeholder. On first boot with an empty database, the server seeds default administrator (`DEFAULT_ADMIN_*`) and viewer (`DEFAULT_VIEWER_*`) accounts plus device 1 (`DEFAULT_DEVICE_API_KEY`). Users must authenticate before accessing the dashboard APIs or SSE streams.
 
 ### 3. Generate Dev TLS Certificates (With SAN Extensions for HTTPS)
 ```bash

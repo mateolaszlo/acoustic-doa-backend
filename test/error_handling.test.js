@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createApp } from '../app.js';
 import { initDatabase } from '../utils/db.js';
 import { encodeBinaryBatch, CLOCK_FLAG_UTC_SYNCHRONIZED } from '../utils/binary_parser.js';
@@ -9,6 +11,7 @@ import { PTZDirectorService } from '../utils/ptz_director_service.js';
 import { MultiTargetTracker } from '../utils/multi_target_tracker.js';
 import { MeasurementService } from '../utils/measurement_service.js';
 import { sseBroadcaster } from '../utils/sse_broadcaster.js';
+import { validateEnv } from '../utils/env.js';
 
 describe('Backend Error Handling & Fault Isolation', () => {
   let server;
@@ -248,5 +251,37 @@ describe('Backend Error Handling & Fault Isolation', () => {
     } finally {
       controller.abort();
     }
+  });
+
+  it('fails fast in validateEnv and bin/www startup when required .env values are missing', () => {
+    expect(() => validateEnv({})).toThrow(/PORT_HTTP.*JWT_SECRET.*DEFAULT_ADMIN_PASSWORD/s);
+
+    expect(() =>
+      validateEnv({
+        PORT_HTTP: '3000',
+        PORT_HTTPS: '3443',
+        DATABASE_PATH: './app.db',
+        JWT_SECRET: 'replace-with-a-long-random-secret',
+        DEFAULT_DEVICE_API_KEY: 'esp32-key-1234',
+        DEFAULT_ADMIN_USER: 'admin',
+        DEFAULT_ADMIN_EMAIL: 'admin@acoustic-doa.local',
+        DEFAULT_ADMIN_PASSWORD: 'strongpassword1',
+        DEFAULT_VIEWER_USER: 'viewer',
+        DEFAULT_VIEWER_EMAIL: 'viewer@acoustic-doa.local',
+        DEFAULT_VIEWER_PASSWORD: 'strongpassword2',
+      })
+    ).toThrow(/JWT_SECRET/);
+
+    // Subprocess boot outside test env without .env must exit non-zero immediately
+    const wwwPath = path.resolve(process.cwd(), 'bin/www');
+    const proc = spawnSync(process.execPath, [wwwPath], {
+      cwd: os.tmpdir(),
+      env: { PATH: process.env.PATH },
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    expect(proc.status).toBe(1);
+    expect(proc.stderr).toContain('[FATAL] Invalid or incomplete .env configuration');
+    expect(proc.stderr).toContain('JWT_SECRET');
   });
 });
