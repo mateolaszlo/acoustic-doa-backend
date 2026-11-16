@@ -6,17 +6,30 @@ import { createApp } from '../app.js';
 import { initDatabase } from '../utils/db.js';
 import { SpatialZoneService } from '../utils/spatial_zone_service.js';
 
+function removeTestDbFiles(dbPath) {
+  for (const suffix of ['', '-wal', '-shm']) {
+    const file = `${dbPath}${suffix}`;
+    if (fs.existsSync(file)) {
+      try {
+        fs.unlinkSync(file);
+      } catch {}
+    }
+  }
+}
+
 describe('Spatial Zones REST API & Service', () => {
   let server;
   let baseUrl;
+  let db;
   const testDbPath = path.join(process.cwd(), 'test_spatial_zones.db');
   let adminToken;
   let viewerToken;
 
   beforeAll(async () => {
-    if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+    removeTestDbFiles(testDbPath);
 
     const app = createApp(testDbPath);
+    db = initDatabase(testDbPath);
     await new Promise((resolve) => {
       server = http.createServer(app).listen(0, () => {
         const port = server.address().port;
@@ -52,7 +65,12 @@ describe('Spatial Zones REST API & Service', () => {
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }
-    if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+    if (db) {
+      try {
+        db.close();
+      } catch {}
+    }
+    removeTestDbFiles(testDbPath);
   });
 
   it('GET /devices/1/zones blocks unauthenticated requests with 401 and returns default zones to viewer', async () => {

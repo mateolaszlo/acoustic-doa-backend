@@ -19,23 +19,31 @@ import {
   BASE_ROOM_CENTER_Y,
 } from '../utils/ptz_director_service.js';
 
+function removeTestDbFiles(dbPath) {
+  for (const suffix of ['', '-wal', '-shm']) {
+    const file = `${dbPath}${suffix}`;
+    if (fs.existsSync(file)) {
+      try {
+        fs.unlinkSync(file);
+      } catch {}
+    }
+  }
+}
+
 describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
   let server;
   let baseUrl;
+  let db;
   const testDbPath = path.join(process.cwd(), 'test_studio_director.db');
   let adminToken;
   let viewerToken;
   let ptzDirectorService;
 
   beforeAll(async () => {
-    if (fs.existsSync(testDbPath)) {
-      try {
-        fs.unlinkSync(testDbPath);
-      } catch {}
-    }
+    removeTestDbFiles(testDbPath);
 
     const app = createApp(testDbPath);
-    const db = initDatabase(testDbPath);
+    db = initDatabase(testDbPath);
     ptzDirectorService = new PTZDirectorService(db);
     await new Promise((resolve) => {
       server = http.createServer(app).listen(0, () => {
@@ -70,11 +78,12 @@ describe('Studio Configuration & Authoritative PTZ Director Engine', () => {
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }
-    if (fs.existsSync(testDbPath)) {
+    if (db) {
       try {
-        fs.unlinkSync(testDbPath);
+        db.close();
       } catch {}
     }
+    removeTestDbFiles(testDbPath);
   });
 
   describe('Pure Geometric PTZ Math', () => {

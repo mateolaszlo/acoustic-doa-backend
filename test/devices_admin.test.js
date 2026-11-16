@@ -3,18 +3,32 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createApp } from '../app.js';
+import { initDatabase } from '../utils/db.js';
+
+function removeTestDbFiles(dbPath) {
+  for (const suffix of ['', '-wal', '-shm']) {
+    const file = `${dbPath}${suffix}`;
+    if (fs.existsSync(file)) {
+      try {
+        fs.unlinkSync(file);
+      } catch {}
+    }
+  }
+}
 
 describe('Admin Device & API Key Management REST Endpoints', () => {
   let server;
   let baseUrl;
+  let db;
   const testDbPath = path.join(process.cwd(), 'test_devices_admin.db');
   let adminToken;
   let viewerToken;
 
   beforeAll(async () => {
-    if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+    removeTestDbFiles(testDbPath);
 
     const app = createApp(testDbPath);
+    db = initDatabase(testDbPath);
     await new Promise((resolve) => {
       server = http.createServer(app).listen(0, () => {
         const port = server.address().port;
@@ -50,7 +64,12 @@ describe('Admin Device & API Key Management REST Endpoints', () => {
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }
-    if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+    if (db) {
+      try {
+        db.close();
+      } catch {}
+    }
+    removeTestDbFiles(testDbPath);
   });
 
   it('blocks unauthenticated GET /devices with 401 and returns sanitized list for viewer', async () => {
