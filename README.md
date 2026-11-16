@@ -60,6 +60,9 @@ acoustic-doa-backend/
 
 ## Documentation
 
+- [System Architecture & Traffic Path](docs/ARCHITECTURE.md)
+- [Database Schema & Storage](docs/DATABASE.md)
+- [Subsystems & Security Features](docs/FEATURES.md)
 - [REST & SSE API Specification](docs/API_SPECIFICATION.md)
 - [Binary Protocol Specification](docs/BINARY_PROTOCOL.md)
 - [OpenAPI 3.1 Spec](public/openapi.yaml)
