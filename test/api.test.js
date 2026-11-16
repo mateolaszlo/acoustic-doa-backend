@@ -3,17 +3,20 @@ import { createApp } from '../app.js';
 import { encodeBinaryBatch, CLOCK_FLAG_UTC_SYNCHRONIZED } from '../utils/binary_parser.js';
 import { sseBroadcaster } from '../utils/sse_broadcaster.js';
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
+import path from 'node:path';
 
 describe('Acoustic DOA REST API Endpoints', () => {
   const TEST_DB = './test_acoustic_doa.db';
+  let app;
   let server;
   let baseUrl;
   let adminToken;
 
   beforeAll(async () => {
     if (fs.existsSync(TEST_DB)) fs.unlinkSync(TEST_DB);
-    const app = createApp(TEST_DB);
+    app = createApp(TEST_DB);
     await new Promise((resolve) => {
       server = app.listen(0, '127.0.0.1', () => {
         const addr = server.address();
@@ -334,5 +337,63 @@ describe('Acoustic DOA REST API Endpoints', () => {
     expect(data.servers[0].url).toBe('/api/v1');
     expect(data.endpoints.devices).toBe('/api/v1/devices');
     expect(data.endpoints.tracks).toBe('/api/v1/devices/:device_id/tracks');
+  });
+
+  it('serves the EJS Gateway Status page at GET /status', async () => {
+    const res = await fetch(`${baseUrl}/status`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const html = await res.text();
+    expect(html).toContain('Acoustic DOA Gateway');
+  });
+
+  it('serves built dashboard index.html at GET / when dist/ exists', async () => {
+    const res = await fetch(`${baseUrl}/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const html = await res.text();
+    expect(html).toContain('<div id="root"></div>');
+    expect(html).toContain('Acoustic DOA');
+  });
+
+  it('serves dashboard and API over HTTPS with SAN certificate validation', async () => {
+    const keyPem = fs.readFileSync(path.resolve(process.cwd(), 'certs/server.key'));
+    const certPem = fs.readFileSync(path.resolve(process.cwd(), 'certs/server.cert'));
+
+    const httpsServer = https.createServer({ key: keyPem, cert: certPem }, app);
+    await new Promise((resolve) => httpsServer.listen(0, '127.0.0.1', resolve));
+    const httpsPort = httpsServer.address().port;
+
+    const getOverHttps = (reqPath) =>
+      new Promise((resolve, reject) => {
+        const req = https.get(
+          `https://127.0.0.1:${httpsPort}${reqPath}`,
+          { ca: certPem, servername: 'localhost' },
+          (res) => {
+            let body = '';
+            res.on('data', (chunk) => {
+              body += chunk;
+            });
+            res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+          }
+        );
+        req.on('error', reject);
+      });
+
+    try {
+      const rootRes = await getOverHttps('/');
+      expect(rootRes.status).toBe(200);
+      expect(rootRes.body).toContain('<div id="root"></div>');
+
+      const healthRes = await getOverHttps('/health');
+      expect(healthRes.status).toBe(200);
+      expect(JSON.parse(healthRes.body).status).toBe('ok');
+
+      const studioRes = await getOverHttps('/api/v1/devices/1/studio');
+      expect(studioRes.status).toBe(200);
+      expect(JSON.parse(studioRes.body).deviceId).toBe(1);
+    } finally {
+      await new Promise((resolve) => httpsServer.close(resolve));
+    }
   });
 });

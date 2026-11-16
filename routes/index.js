@@ -1,14 +1,13 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { Router } from 'express';
 import { sseBroadcaster } from '../utils/sse_broadcaster.js';
 
-export function createIndexRoutes(deviceService) {
+export function createIndexRoutes(deviceService, dashboardDistPath = null) {
   const router = Router();
+  const dashboardIndexPath = dashboardDistPath ? path.join(dashboardDistPath, 'index.html') : null;
 
-  /**
-   * GET /
-   * Render server dashboard / landing page view
-   */
-  router.get('/', (_req, res) => {
+  function renderStatusPage(res) {
     try {
       const devices = deviceService.listDevices();
       const sseSubscribers = sseBroadcaster.getClientCount();
@@ -28,7 +27,24 @@ export function createIndexRoutes(deviceService) {
         api_version: 'v1',
       });
     }
+  }
+
+  /**
+   * GET /
+   * Serve built React Dashboard if available, otherwise fall back to Gateway Status page
+   */
+  router.get('/', (req, res) => {
+    if (req.query.view !== 'status' && dashboardIndexPath && fs.existsSync(dashboardIndexPath)) {
+      return res.sendFile(dashboardIndexPath);
+    }
+    return renderStatusPage(res);
   });
+
+  /**
+   * GET /status
+   * Render server gateway / device status view
+   */
+  router.get('/status', (_req, res) => renderStatusPage(res));
 
   /**
    * GET /health

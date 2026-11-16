@@ -81,6 +81,9 @@ if (!isHttpsDisabled && fs.existsSync(certKeyPath) && fs.existsSync(certCrtPath)
 
     httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
       console.log(`[HTTPS] Secure Client Gateway listening on https://0.0.0.0:${HTTPS_PORT}`);
+      console.log(`[HTTPS] Web Dashboard UI: https://localhost:${HTTPS_PORT}/`);
+      console.log(`[HTTPS] Gateway Status:   https://localhost:${HTTPS_PORT}/status`);
+      console.log(`[HTTPS] Swagger Docs:     https://localhost:${HTTPS_PORT}/api/docs`);
       console.log(`[HTTPS] Real-time SSE stream: https://localhost:${HTTPS_PORT}/api/v1/devices/1/stream`);
     });
   } catch (err) {

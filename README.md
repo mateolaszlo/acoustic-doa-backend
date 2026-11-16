@@ -43,13 +43,18 @@ High-performance REST API and Server-Sent Events (SSE) streaming server for the 
 npm install
 ```
 
-### 3. Generate Dev TLS Certificates (Optional for HTTPS)
+### 3. Generate Dev TLS Certificates (With SAN Extensions for HTTPS)
 ```bash
 bash certs/generate_certs.sh
+# Or force regeneration if updating old certificates:
+bash certs/generate_certs.sh --force
 ```
 
-### 4. Run Server
+### 4. Build Dashboard & Run Server
 ```bash
+# Build the React dashboard production bundle (served over HTTPS at /)
+npm run build:dashboard
+
 # Production mode (runs bin/www directly)
 npm start
 
@@ -58,10 +63,10 @@ npm run dev
 ```
 
 The server starts two gateways:
-- **HTTP Ingestion:** `http://localhost:3000`
-- **HTTPS Client Gateway:** `https://localhost:3443`
-- **Web Landing Page:** `http://localhost:3000/`
-- **Interactive Swagger Documentation:** `http://localhost:3000/api/docs`
+- **HTTP Ingestion (ESP32):** `http://localhost:3000`
+- **HTTPS Web Dashboard UI:** `https://localhost:3443/` (when `../acoustic-doa-dashboard/dist` is built)
+- **HTTPS Gateway Status Page:** `https://localhost:3443/status`
+- **Interactive Swagger Documentation:** `https://localhost:3443/api/docs`
 
 ### 5. Run Synthetic ESP32 Simulator
 To simulate real-time acoustic sound sources moving around the microphone array:
