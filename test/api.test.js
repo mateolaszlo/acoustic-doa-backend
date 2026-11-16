@@ -5,7 +5,9 @@ import { sseBroadcaster } from '../utils/sse_broadcaster.js';
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 describe('Acoustic DOA REST API Endpoints', () => {
   const TEST_DB = './test_acoustic_doa.db';
@@ -360,45 +362,81 @@ describe('Acoustic DOA REST API Endpoints', () => {
   });
 
   it('serves Gateway Status and API over HTTPS with SAN certificate validation', async () => {
-    const keyPem = fs.readFileSync(path.resolve(process.cwd(), 'certs/server.key'));
-    const certPem = fs.readFileSync(path.resolve(process.cwd(), 'certs/server.cert'));
-
-    const httpsServer = https.createServer({ key: keyPem, cert: certPem }, app);
-    await new Promise((resolve) => httpsServer.listen(0, '127.0.0.1', resolve));
-    const httpsPort = httpsServer.address().port;
-
-    const getOverHttps = (reqPath, headers = {}) =>
-      new Promise((resolve, reject) => {
-        const req = https.get(
-          `https://127.0.0.1:${httpsPort}${reqPath}`,
-          { ca: certPem, servername: 'localhost', headers },
-          (res) => {
-            let body = '';
-            res.on('data', (chunk) => {
-              body += chunk;
-            });
-            res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
-          }
-        );
-        req.on('error', reject);
-      });
-
+    const certDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acoustic-doa-certs-'));
     try {
-      const rootRes = await getOverHttps('/');
-      expect(rootRes.status).toBe(200);
-      expect(rootRes.body).toContain('Acoustic DOA Gateway');
+      execFileSync(
+        'openssl',
+        [
+          'req',
+          '-nodes',
+          '-new',
+          '-x509',
+          '-keyout',
+          'server.key',
+          '-out',
+          'server.cert',
+          '-days',
+          '1',
+          '-subj',
+          '/C=SI/O=Acoustic DOA/CN=localhost',
+          '-addext',
+          'subjectAltName=DNS:localhost,IP:127.0.0.1',
+          '-addext',
+          'basicConstraints=CA:FALSE',
+          '-addext',
+          'keyUsage=digitalSignature,keyEncipherment',
+          '-addext',
+          'extendedKeyUsage=serverAuth',
+        ],
+        {
+          cwd: certDir,
+          env: { ...process.env, MSYS_NO_PATHCONV: '1' },
+          stdio: 'pipe',
+        }
+      );
 
-      const healthRes = await getOverHttps('/health');
-      expect(healthRes.status).toBe(200);
-      expect(JSON.parse(healthRes.body).status).toBe('ok');
+      const keyPem = fs.readFileSync(path.join(certDir, 'server.key'));
+      const certPem = fs.readFileSync(path.join(certDir, 'server.cert'));
 
-      const studioRes = await getOverHttps('/api/v1/devices/1/studio', {
-        Authorization: `Bearer ${adminToken}`,
-      });
-      expect(studioRes.status).toBe(200);
-      expect(JSON.parse(studioRes.body).deviceId).toBe(1);
+      const httpsServer = https.createServer({ key: keyPem, cert: certPem }, app);
+      await new Promise((resolve) => httpsServer.listen(0, '127.0.0.1', resolve));
+      const httpsPort = httpsServer.address().port;
+
+      const getOverHttps = (reqPath, headers = {}) =>
+        new Promise((resolve, reject) => {
+          const req = https.get(
+            `https://127.0.0.1:${httpsPort}${reqPath}`,
+            { ca: certPem, servername: 'localhost', headers },
+            (res) => {
+              let body = '';
+              res.on('data', (chunk) => {
+                body += chunk;
+              });
+              res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+            }
+          );
+          req.on('error', reject);
+        });
+
+      try {
+        const rootRes = await getOverHttps('/');
+        expect(rootRes.status).toBe(200);
+        expect(rootRes.body).toContain('Acoustic DOA Gateway');
+
+        const healthRes = await getOverHttps('/health');
+        expect(healthRes.status).toBe(200);
+        expect(JSON.parse(healthRes.body).status).toBe('ok');
+
+        const studioRes = await getOverHttps('/api/v1/devices/1/studio', {
+          Authorization: `Bearer ${adminToken}`,
+        });
+        expect(studioRes.status).toBe(200);
+        expect(JSON.parse(studioRes.body).deviceId).toBe(1);
+      } finally {
+        await new Promise((resolve) => httpsServer.close(resolve));
+      }
     } finally {
-      await new Promise((resolve) => httpsServer.close(resolve));
+      fs.rmSync(certDir, { recursive: true, force: true });
     }
   });
 });
