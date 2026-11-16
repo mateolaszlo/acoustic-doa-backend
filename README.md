@@ -1,200 +1,65 @@
-# Acoustic DOA Backend Server
+# Acoustic DOA Backend
 
-High-performance REST API and Server-Sent Events (SSE) streaming server for the **ESP32 Acoustic Direction of Arrival (DOA)** tracking platform. Built in modern JavaScript (ES Modules) following the standard university course architecture (`express-generator` style: `bin/www`, `app.js`, `routes/`, `utils/`, `views/`, and `public/`).
+REST API, SQLite storage, and Server-Sent Events (SSE) server for ESP32 Direction-of-Arrival (DOA) microphone arrays.
 
----
+It receives binary detection batches from ESP32 nodes over HTTP, tracks sound sources and camera switching server-side, and streams live updates to the web dashboard over HTTPS.
 
-## 🌟 Architecture & Features
+## Requirements
 
-- **Standard Course Architecture:** Matches the university course structure (*Vaja 2, 3 in 4*):
-  - `bin/www`: Dual-port startup script (HTTP + HTTPS listeners, graceful error handling).
-  - `app.js`: Express application configuration, middleware, and route mounting.
-  - `routes/`: Modular endpoints (`devices.js`, `measurements.js`, `config.js`, `stream.js`, `auth.js`, `users.js`, `index.js`).
-  - `utils/`: Database management (`db.js`), binary Little-Endian packet decoder (`binary_parser.js`), input validator, and SSE broadcaster.
-  - `views/`: EJS templates for the web landing status page (`index.ejs`) and error views.
-  - `public/`: Static documentation assets and OpenAPI specification (`openapi.yaml`).
-- **Dual-Tier Security Architecture:**
-  - **HTTP Device Ingestion (Port 3000):** Lightweight HTTP with `x-api-key` authentication for the ESP32 edge node to eliminate TLS handshake latency and crypto memory overhead on the micro-controller.
-  - **HTTPS Management & Streaming (Port 3443):** Strict TLS encrypted gateway with CORS protection for the web visualizer dashboard and management clients.
-- **Hardware-Compatible Binary Decoder:** Strictly unpacks the Little-Endian 12-byte header + $N \times 20$-byte records ($1 \le N \le 24$) defined in the ESP32 firmware (`src/network/rest_protocol.h`).
-- **Server-Sent Events (SSE) Live Stream:** Sub-20ms real-time event push over pure HTTP (`GET /api/v1/devices/:id/stream`) for the 60fps web visualizer radar canvas.
-- **SQLite Persistence with WAL Mode:** High concurrency file-based storage using `better-sqlite3`, capable of thousands of writes per second with zero external database daemons.
-- **OpenAPI 3.1 & Interactive Swagger UI:** Complete machine-readable contract at `public/openapi.yaml` and interactive browser documentation served at `/api/docs`.
-- **Multi-Clock Normalization & Smooth Timeframe Fusion Engine:** Synchronizes mixed timing packets (`MONOTONIC_UPTIME` `0x0004`, `SERVER_UTC` `0x0002`/`0x0003`, and `SNTP_UTC` `0x0001`) into a strictly monotonic timeline using causal lower-envelope boot anchoring, dynamic Cubic Hermite slewing ($\frac{dT}{dt} \ge +0.5\text{ ms/ms}$), simultaneous CLEAN frame preservation, and retroactive SQLite session tightening.
-- **Hardware Node & API Key Management:** REST endpoints for administrators to provision new arrays, rotate 32-character API keys, rename nodes, and decommission hardware without modifying files.
-- **Safe Historical Data Purge:** Dedicated endpoint to purge stored measurement history per device without dropping active SSE subscribers.
-- **Temporal Multi-Target Tracking (MTT):** Circular Kalman filter on $S^1$ ($[-180^\circ, +180^\circ)$) with Global Nearest Neighbor association and speech-aware `ACTIVE` / `COASTING` track states to eliminate transient silence/reverb twitching.
-- **Spatial Room Geofencing:** Persistent sector zones (`Podium`, `Main Table`, `Priority`, `Ignore`, `Mute` / `Zone`, including circular wrap-around across $\pm 180^\circ$) evaluated against incoming tracks.
-- **Authoritative PTZ Studio Director Engine:** Server-side persistence of conference room layout (table presets, seats, custom draggable chairs, 1–3 virtual PTZ cameras, director tuning) and deterministic live camera switching broadcast over SSE (`measurement_batch` & `studio_config`).
-- **Fault Isolation & Error Handling:** Unified error envelopes (`utils/http_errors.js`), strict `:device_id` & JSON validation, and isolated `try/catch` stages in `POST /measurements` so raw batches persist to SQLite even if enrichment stages fail.
-- **Role-Based Access Control (RBAC):** JWT authentication distinguishing `admin` (calibration, node provisioning, zones, studio layout, user management, measurement purge) and `viewer` (read-only monitoring).
-- **Remote Device Calibration Engine:** Allows web dashboard users to update array distance, zero-angle offsets, SNR margins, SPL thresholds, sector transition widths, and tracker hold timeouts, which are automatically synced to the ESP32 on its next 60s poll.
+- Node.js 20+ and npm 10+
+- OpenSSL (for generating local HTTPS dev certificates)
 
----
+## Quick Start
 
-## 🚀 Quick Start
-
-### 1. Requirements
-- Node.js 20.x or higher
-- npm 10.x or higher
-
-### 2. Installation & Environment
 ```bash
 npm install
-cp .env.example .env   # Required: set ports, DB path, a strong JWT_SECRET (>=16 chars), and admin/viewer credentials
-```
-
-The server **fails fast on startup** if required `.env` variables are missing or if `JWT_SECRET` still uses the example placeholder. On first boot with an empty database, the server seeds default administrator (`DEFAULT_ADMIN_*`) and viewer (`DEFAULT_VIEWER_*`) accounts plus device 1 (`DEFAULT_DEVICE_API_KEY`). Users must authenticate before accessing the dashboard APIs or SSE streams.
-
-### 3. Generate Dev TLS Certificates (With SAN Extensions for HTTPS)
-```bash
+cp .env.example .env
 bash certs/generate_certs.sh
-# Or force regeneration if updating old certificates:
-bash certs/generate_certs.sh --force
-```
-
-### 4. Run Server
-```bash
-# Production mode (runs bin/www directly)
-npm start
-
-# Development mode (with nodemon auto-restart on code changes)
 npm run dev
 ```
 
-The server starts two gateways:
-- **HTTP Ingestion (ESP32):** `http://localhost:3000`
-- **HTTPS Client & API Gateway:** `https://localhost:3443/`
-- **Gateway Status Page:** `https://localhost:3443/` (or `http://localhost:3000/`)
-- **Interactive Swagger Documentation:** `https://localhost:3443/api/docs`
+Before starting, edit `.env` and replace the placeholder values (especially `JWT_SECRET`, `DEFAULT_ADMIN_*`, and `DEFAULT_VIEWER_*`). The server validates `.env` at startup and exits if required values are missing or left as placeholders.
 
-### 5. Run Synthetic ESP32 Simulator
-To simulate real-time acoustic sound sources moving around the microphone array:
-```bash
-npm run simulate
-```
+Default gateways once running:
+- **Device Ingestion (HTTP):** `http://localhost:3000` (used by ESP32 nodes with `x-api-key`)
+- **Client & Dashboard API (HTTPS):** `https://localhost:3443` (or your configured `PORT_HTTPS`)
+- **Swagger UI:** `https://localhost:3443/api/docs`
 
-### 6. Run Test Suite
-```bash
-npm test
-```
+> **Windows tip:** If port `3443` fails with `EACCES`, set `PORT_HTTPS=8443` (or `DISABLE_HTTPS=true`) in `.env`.
 
----
+## Scripts
 
-## 📁 Project Directory Layout
+| Command | Purpose |
+|---|---|
+| `npm start` | Run server directly (`node ./bin/www`) |
+| `npm run dev` | Run server with `nodemon` auto-reload |
+| `npm run simulate` | Send synthetic ESP32 binary batches for local testing |
+| `npm test` | Run Vitest suite (`vitest run`) |
+
+## Core Responsibilities
+
+- **Binary Ingestion (`POST /api/v1/measurements`):** Decodes 12-byte header + $N \times 20$-byte records ($1 \le N \le 24$) + CRC32 trailer packets from ESP32 arrays.
+- **Clock Fusion & Tracking:** Aligns monotonic/SNTP/server timestamps (`ClockFusionService`), maintains circular Kalman speaker tracks (`MultiTargetTracker`), evaluates spatial room zones (`SpatialZoneService`), and computes PTZ camera switching (`PTZDirectorService`).
+- **Authenticated Dashboard APIs & SSE:** Uses `HttpOnly` session cookies (and `Authorization: Bearer`) with `admin` / `viewer` roles and broadcasts telemetry, studio layout, zone, and config changes over `/api/v1/devices/:id/stream`.
+
+## Project Structure
 
 ```text
 acoustic-doa-backend/
-├── bin/
-│   └── www                       # Executable server bootstrap (HTTP 3000 + HTTPS 3443, TLS fallback)
-├── routes/
-│   ├── index.js                  # Landing page & /health check
-│   ├── devices.js                # ESP32 calibration poll, node CRUD, zones & studio config
-│   ├── measurements.js           # Binary batch ingestion, tracks, stats & historical queries
-│   ├── config.js                 # Web dashboard remote array calibration (Admin guarded)
-│   ├── stream.js                 # Server-Sent Events (SSE) live telemetry stream
-│   ├── auth.js                   # JWT authentication (login, register, me)
-│   └── users.js                  # User role management (Admin only)
-├── utils/
-│   ├── db.js                     # SQLite initialization, WAL pragma & migrations
-│   ├── clock_fusion_service.js   # Multi-clock fusion, causal anchoring & Hermite slew
-│   ├── multi_target_tracker.js   # Circular Kalman Multi-Target Tracker (MTT) & coasting
-│   ├── spatial_zone_service.js   # Spatial geofencing sectors (wrap-around aware)
-│   ├── ptz_director_service.js   # Authoritative PTZ Director & 1-3 camera rig service
-│   ├── binary_parser.js          # 12B header + 20B record Little-Endian buffer decoder
-│   ├── validator.js              # Acoustic parameter bounds validator
-│   ├── sse_broadcaster.js        # SSE connection pool, studio_config push & heartbeats
-│   ├── device_service.js         # Device authentication & state queries
-│   ├── calibration_service.js    # Calibration profiles & zero-angle trim
-│   ├── measurement_service.js    # Batch inserts & 36-bin angular statistics
-│   ├── auth_service.js           # Password hashing & JWT management
-│   ├── auth_middleware.js        # Express middleware for JWT & RBAC guards
-│   ├── cookie_parser.js          # Dependency-free Cookie header parser
-│   ├── env.js                    # Startup .env fail-fast validator
-│   ├── rate_limiter.js           # In-memory sliding-window auth rate limiter
-│   └── http_errors.js            # Structured sendError, parsePositiveIntId & safeJsonParse helpers
-├── views/
-│   ├── index.ejs                 # HTML landing page with active device status
-│   └── error.ejs                 # Standard error view template
-├── public/
-│   └── openapi.yaml              # OpenAPI 3.1 specification (Swagger /api/docs & /openapi.yaml)
-├── db/
-│   └── schema.sql                # SQL tables for devices, calibration, measurements, zones, studio, users
-├── certs/
-│   └── generate_certs.sh         # Local TLS certificate generator
-├── scripts/
-│   └── simulate_esp32.js         # Synthetic ESP32 DOA array batch generator
-├── test/
-│   ├── api.test.js               # REST & SSE integration tests (Vitest)
-│   ├── auth_and_rbac.test.js     # RBAC & authentication unit tests (Vitest)
-│   ├── binary_parser.test.js     # Bit-level protocol unit tests (Vitest)
-│   ├── clock_fusion.test.js      # Multi-clock fusion & smooth timeframe tests (Vitest)
-│   ├── devices_admin.test.js     # Node provisioning & API key management tests (Vitest)
-│   ├── error_handling.test.js    # Error envelopes, validation & fault isolation tests (Vitest)
-│   ├── multi_target_tracker.test.js # Circular Kalman & track lifecycle tests (Vitest)
-│   ├── spatial_zones.test.js     # Spatial geofencing REST & wrap-around tests (Vitest)
-│   └── studio_director.test.js   # Studio persistence & PTZ Director tests (Vitest)
-├── app.js                        # Express application & middleware setup
-└── package.json                  # Pure ES Module dependencies
+├── bin/www              # HTTP + HTTPS startup and shutdown handlers
+├── app.js               # Express app, Helmet/CORS middleware, route wiring
+├── routes/              # auth, users, devices, measurements, config, stream, index
+├── utils/               # SQLite DB, binary parser, tracker, PTZ director, clock fusion, auth
+├── db/schema.sql        # SQLite schema
+├── certs/               # Local SAN TLS certificate generator
+├── public/openapi.yaml  # OpenAPI 3.1 contract served at /api/docs
+├── views/               # EJS status & 404 templates
+├── scripts/             # ESP32 synthetic telemetry simulator
+└── docs/                # Detailed API & binary protocol specs
 ```
 
----
+## Documentation
 
-## 📡 REST API Reference
-
-| Method | Endpoint | Consumer | Auth | Description |
-|:---:|:---|:---|:---:|:---|
-| `GET` | `/api/v1/devices/:id/calibration` | ESP32 | `x-api-key` | Retrieve DSP parameters and server UTC time |
-| `POST` | `/api/v1/measurements` | ESP32 | `x-api-key` | Ingest binary batch ($12 + 20N + 4$ bytes with CRC32) |
-| `GET` | `/api/v1/devices/:id/stream` | Web Client | Cookie / JWT | Real-time SSE stream (`measurement_batch`, `studio_config`, `zones_config`, `device_config`) |
-| `GET` | `/api/v1/devices/:id/tracks` | Web Client | Cookie / JWT | Active & coasting multi-target speaker tracks |
-| `GET` | `/api/v1/devices/:id/measurements/latest` | Web Client | Cookie / JWT | Poll newest records since timestamp |
-| `GET` | `/api/v1/devices/:id/measurements` | Web Client | Cookie / JWT | Query historical measurements with filters |
-| `GET` | `/api/v1/devices/:id/count` | Web Client | Cookie / JWT | Retrieve all-time measurement count (`total`) |
-| `GET` | `/api/v1/devices/:id/stats` | Web Client | Cookie / JWT | Retrieve 36-bin polar histogram and peak SPL |
-| `GET` | `/api/v1/devices/:id/config` | Web Client | Cookie / JWT | View active device calibration profile |
-| `PUT` | `/api/v1/devices/:id/config` | Web Client | Admin JWT/Cookie | Update calibration parameters remotely |
-| `POST` | `/api/v1/devices/:id/calibrate/zero-angle` | Web Client | Admin JWT/Cookie | Compute and apply circular mean zero-angle trim |
-| `GET` | `/api/v1/devices/:id/zones` | Web Client | Cookie / JWT | List spatial room geofence sectors |
-| `PUT` | `/api/v1/devices/:id/zones` | Web Client | Admin JWT/Cookie | Atomically replace spatial zones |
-| `GET` | `/api/v1/devices/:id/studio` | Web Client | Cookie / JWT | Get persisted room layout, 1–3 cameras & PTZ director state |
-| `PUT` | `/api/v1/devices/:id/studio` | Web Client | Admin JWT/Cookie | Update studio layout, cameras (1–3), director tuning or manual cut |
-| `GET` | `/api/v1/devices` | Web Client | Cookie / JWT | List registered devices (Admin sees API keys & counts) |
-| `POST` | `/api/v1/devices` | Web Client | Admin JWT/Cookie | Provision a new hardware node |
-| `PUT` | `/api/v1/devices/:id` | Web Client | Admin JWT/Cookie | Update hardware node details |
-| `POST` | `/api/v1/devices/:id/api-key/rotate` | Web Client | Admin JWT/Cookie | Rotate device `x-api-key` |
-| `DELETE` | `/api/v1/devices/:id` | Web Client | Admin JWT/Cookie | Decommission device (rejects sole remaining device) |
-| `DELETE` | `/api/v1/devices/:id/measurements` | Web Client | Admin JWT/Cookie | Purge historical measurements without dropping SSE |
-| `POST` | `/api/v1/auth/login` | Web Client | None (Rate Limited) | Authenticate & set `HttpOnly` session cookie |
-| `POST` | `/api/v1/auth/register` | Web Client | None (Rate Limited) | Register new `viewer` account & set session cookie |
-| `POST` | `/api/v1/auth/logout` | Web Client | None | Clear `HttpOnly` session cookie |
-| `GET` | `/api/v1/auth/me` | Web Client | Cookie / JWT | Fetch authenticated user profile |
-| `GET` / `PATCH` / `DELETE` | `/api/v1/users` / `/:id/role` / `/:id` | Web Client | Admin JWT/Cookie | List users, update roles, delete users |
-| `GET` | `/health` | All | None | Server uptime and health probe |
-
----
-
-## 📦 Binary Ingestion Format (POST /measurements)
-
-The binary payload consists of a 12-byte header, $N$ contiguous 20-byte records, and terminates with a 4-byte IEEE 802.3 CRC32 trailer (Total: $12 + 20N + 4$ bytes):
-
-### 12-Byte Header (Little-Endian)
-- `[0]` `format_version`: uint8 = 1
-- `[1]` `measurement_count`: uint8 = 1..24
-- `[2..3]` `clock_flags`: uint16_le (`0x0001` SNTP, `0x0002` Server UTC, `0x0004` Monotonic)
-- `[4..11]` `base_timestamp_ms`: uint64_le
-
-### 20-Byte Records
-- `[+0..+3]` `offset_ms`: uint32_le
-- `[+4..+7]` `angle_deg`: float32_le ($\phi \in [-180^\circ, +180^\circ]$)
-- `[+8]` `slot_id`: uint8 ($0..2$)
-- `[+9]` `sector_id`: uint8 ($0..72$ or `0xFF` on `LEAVE`)
-- `[+10]` `event_type`: uint8 (`1=ENTER`, `2=MOVE`, `3=HEARTBEAT`, `4=LEAVE`)
-- `[+11]` `active_sources`: uint8 ($0..2$)
-- `[+12..+15]` `sound_level_db`: float32_le (calibrated dB SPL)
-- `[+16..+19]` `confidence`: float32_le ($[0.0, 1.0]$)
-
-### 4-Byte Trailer (Little-Endian)
-- `[12+20N .. 15+20N]` `crc32`: uint32_le (IEEE 802.3 checksum over preceding $12 + 20N$ bytes)
-
-See [`docs/BINARY_PROTOCOL.md`](docs/BINARY_PROTOCOL.md) for complete byte layout specifications.
+- [REST & SSE API Specification](docs/API_SPECIFICATION.md)
+- [Binary Protocol Specification](docs/BINARY_PROTOCOL.md)
+- [OpenAPI 3.1 Spec](public/openapi.yaml)

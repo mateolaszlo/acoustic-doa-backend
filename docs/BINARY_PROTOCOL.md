@@ -144,14 +144,14 @@ In accordance with ESP32 firmware bitmask definitions:
 3. `CLOCK_FLAG_UTC_SYNCHRONIZED` (`0x0001`): Evaluated third. Pure hardware SNTP discipline from network time servers.
 
 ### 7.2 Causal Lower-Envelope Boot Anchoring
-For monotonic packets (`0x0004`), server reception time $t_{\text{recv}}$ is anchored against the **batch end** ($t_{\text{batch\_end\_mono}} = t_{\text{base}} + \max_i(\text{offset}_i)$):
-$$\hat{T}_{\text{boot\_sample}} = t_{\text{recv}} - t_{\text{batch\_end\_mono}} - \delta_{\text{min\_transit}} \quad (\delta_{\text{min\_transit}} = 2\text{ ms})$$
+For monotonic packets (`0x0004`), server reception time $t_{\text{recv}}$ is anchored against the **batch end** ($t_{\text{batch end}} = t_{\text{base}} + \max_i(\text{offset}_i)$):
+$$\hat{T}_{\text{boot sample}} = t_{\text{recv}} - t_{\text{batch end}} - \delta_{\text{min transit}} \quad (\delta_{\text{min transit}} = 2\text{ ms})$$
 
-- **Retroactive Reconciliation:** If a subsequent packet arrives with lower Wi-Fi queueing delay such that $\hat{T}_{\text{boot\_sample}} < \hat{T}_{\text{boot}} - 2\text{ ms}$, earlier rows in SQLite for that boot session are atomically shifted backward to maintain exact hardware delta spacing.
-- **Silence Gap Immunity:** When transitioning from Monotonic to UTC, the boot anchor is bounded causally ($\hat{T}_{\text{boot}} \le T_{\text{utc\_start}} - t_{\text{last\_mono\_end}} - 1\text{ ms}$) without bridging across quiet periods, preventing events from teleporting across 10-minute quiet gaps.
+- **Retroactive Reconciliation:** If a subsequent packet arrives with lower Wi-Fi queueing delay such that $\hat{T}_{\text{boot sample}} < \hat{T}_{\text{boot}} - 2\text{ ms}$, earlier rows in SQLite for that boot session are atomically shifted backward to maintain exact hardware delta spacing.
+- **Silence Gap Immunity:** When transitioning from Monotonic to UTC, the boot anchor is bounded causally ($\hat{T}_{\text{boot}} \le T_{\text{utc start}} - t_{\text{last mono end}} - 1\text{ ms}$) without bridging across quiet periods, preventing events from teleporting across 10-minute quiet gaps.
 
 ### 7.3 Dynamically Scaled Cubic Hermite Slew
-When bridging clock source steps (e.g. `SERVER_UTC` $\rightarrow$ `SNTP_UTC` with error $E = T_{\text{new\_raw}} - T_{\text{expected}}$):
+When bridging clock source steps (e.g. `SERVER_UTC` $\rightarrow$ `SNTP_UTC` with error $E = T_{\text{new raw}} - T_{\text{expected}}$):
 - If $E < 0$, the slew window is dynamically scaled:
   $$\tau = \max(2000\text{ ms}, \; 3.0 \cdot |E|)$$
 - This mathematically guarantees $\frac{dT_{\text{unified}}}{dt} \ge +0.5\text{ ms/ms} > 0$ across the entire slew, preventing instantaneous time reversals.
