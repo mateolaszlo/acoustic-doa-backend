@@ -109,7 +109,7 @@ acoustic-doa-backend/
 │   ├── index.ejs                 # HTML landing page with active device status
 │   └── error.ejs                 # Standard error view template
 ├── public/
-│   └── openapi.yaml              # OpenAPI 3.1 specification (synced with openapi.yaml)
+│   └── openapi.yaml              # OpenAPI 3.1 specification (Swagger /api/docs & /openapi.yaml)
 ├── db/
 │   └── schema.sql                # SQL tables for devices, calibration, measurements, zones, studio, users
 ├── certs/
@@ -127,7 +127,6 @@ acoustic-doa-backend/
 │   ├── spatial_zones.test.js     # Spatial geofencing REST & wrap-around tests (Vitest)
 │   └── studio_director.test.js   # Studio persistence & PTZ Director tests (Vitest)
 ├── app.js                        # Express application & middleware setup
-├── openapi.yaml                  # OpenAPI 3.1 contract
 └── package.json                  # Pure ES Module dependencies
 ```
 

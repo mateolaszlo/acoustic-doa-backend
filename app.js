@@ -65,13 +65,9 @@ export function createApp(dbPath = process.env.DATABASE_PATH || './app.db') {
   app.use(express.urlencoded({ extended: false }));
 
   // 5. Interactive Swagger UI mounted at /api/docs
-  const candidateSpecPaths = [
-    path.join(__dirname, 'public', 'openapi.yaml'),
-    path.join(__dirname, 'openapi.yaml'),
-  ];
-  const openApiPath = candidateSpecPaths.find((p) => fs.existsSync(p));
+  const openApiPath = path.join(__dirname, 'public', 'openapi.yaml');
 
-  if (openApiPath) {
+  if (fs.existsSync(openApiPath)) {
     try {
       const openApiYaml = fs.readFileSync(openApiPath, 'utf-8');
       const openApiSpec = YAML.parse(openApiYaml);
