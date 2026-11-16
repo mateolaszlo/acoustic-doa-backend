@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Test, OpenAPI & Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate OpenAPI spec
+        run: node -e "import { readFileSync } from 'node:fs'; import YAML from 'yaml'; const doc = YAML.parse(readFileSync('public/openapi.yaml', 'utf8')); if (!doc?.openapi || !doc?.paths) throw new Error('Invalid OpenAPI spec');"
+
+      - name: Production security audit
+        run: npm audit --omit=dev --audit-level=high
